@@ -175,5 +175,3 @@ pytest tests/test_physics.py  # Physics tests only
 ## License
 
 BSD 3-Clause License — see [LICENSE](LICENSE) for details.
-
-**Ready?** Open [docs/getting-started.md](docs/getting-started.md) to begin, or ask Copilot: "Help me customize this template for my project."
