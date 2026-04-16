@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apollo Lander — P66 Descent</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+    <style>
+        body {
+            background-color: #111;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            overflow-x: hidden;
+        }
+        #game-canvas {
+            border: 1px solid #333;
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+        .controls-panel {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 12px;
+            font-size: 13px;
+        }
+        .controls-panel h6 {
+            color: #0f0;
+            margin-bottom: 8px;
+        }
+        .controls-panel kbd {
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 1px 5px;
+            font-size: 12px;
+        }
+        .controls-panel td {
+            padding: 2px 8px 2px 0;
+            color: #aaa;
+        }
+        #status-bar {
+            font-size: 14px;
+            color: #0f0;
+            text-align: center;
+            padding: 6px;
+        }
+        #overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            display: none;
+            z-index: 10;
+        }
+        #overlay h2 {
+            font-size: 36px;
+            text-shadow: 0 0 20px currentColor;
+        }
+        #overlay .success { color: #0f0; }
+        #overlay .failure { color: #f00; }
+        #overlay p {
+            color: #ccc;
+            font-size: 16px;
+        }
+        #overlay button {
+            margin-top: 12px;
+        }
+        .canvas-wrapper {
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-2">
+        <!-- Main game area (full width) -->
+        <div id="status-bar">
+            <span id="status-text">Initializing simulation...</span>
+            <a href="/help" target="_blank" style="color:#0f0;font-size:12px;margin-left:20px;">Flight Manual ↗</a>
+        </div>
+        <div class="canvas-wrapper">
+            <canvas id="game-canvas" width="1200" height="600"></canvas>
+            <div id="overlay">
+                <h2 id="overlay-title"></h2>
+                <p id="overlay-stats"></p>
+                <button class="btn btn-outline-success" onclick="resetGame()">
+                    Play Again (Enter)
+                </button>
+            </div>
+        </div>
+
+        <!-- Info panels (single row, four columns) -->
+        <div class="row g-2 mt-1">
+            <div class="col-md-3">
+                <div class="controls-panel h-100">
+                    <h6>ROTATIONAL HAND CONTROLLER</h6>
+                    <table>
+                        <tr><td><kbd>↑</kbd><kbd>↓</kbd></td><td>Pitch</td></tr>
+                        <tr><td><kbd>←</kbd><kbd>→</kbd></td><td>Roll</td></tr>
+                        <tr><td><kbd>Q</kbd><kbd>E</kbd></td><td>Yaw</td></tr>
+                    </table>
+                    <h6 class="mt-2">RATE OF DESCENT</h6>
+                    <table>
+                        <tr><td><kbd>PgUp</kbd></td><td>Slower (−1 ft/s)</td></tr>
+                        <tr><td><kbd>PgDn</kbd></td><td>Faster (+1 ft/s)</td></tr>
+                    </table>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="controls-panel h-100">
+                    <h6>GENERAL</h6>
+                    <table>
+                        <tr><td><kbd>Enter</kbd></td><td>Reset</td></tr>
+                    </table>
+                    <h6 class="mt-2">LANDING CRITERIA</h6>
+                    <p class="mb-1" style="color:#aaa;font-size:12px;">For a safe touchdown:</p>
+                    <table style="font-size:12px;">
+                        <tr><td style="color:#0f0;">Vert. vel</td><td>≤ 1.2 m/s</td></tr>
+                        <tr><td style="color:#0f0;">Horiz. vel</td><td>≤ 0.6 m/s</td></tr>
+                    </table>
+                    <p class="mt-1 mb-0" style="color:#aaa;font-size:11px;">
+                        <span style="color:#f00;">CRASH</span> — too fast<br>
+                        <span style="color:#ff0;">FUEL OUT</span> — no propellant<br>
+                        <span style="color:#ff0;">TIMEOUT</span> — too long
+                    </p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="controls-panel h-100">
+                    <h6>DSKY READOUT (V16 N68)</h6>
+                    <table style="font-size:12px;">
+                        <tr><td style="color:#fff;">PROG</td><td>Program 66 (P66)</td></tr>
+                        <tr><td style="color:#fff;">VERB</td><td>16 — Monitor</td></tr>
+                        <tr><td style="color:#fff;">NOUN</td><td>68 — Landing</td></tr>
+                    </table>
+                    <hr style="border-color:#333;margin:6px 0;">
+                    <p class="mb-1" style="color:#aaa;font-size:11px;">
+                        ±XXXXX = ft or ft/s × 100
+                    </p>
+                    <table style="font-size:12px;">
+                        <tr><td style="color:#fff;">R1</td><td>Altitude</td></tr>
+                        <tr><td style="color:#fff;">R2</td><td>Vert. velocity</td></tr>
+                        <tr><td style="color:#fff;">R3</td><td>Descent rate</td></tr>
+                    </table>
+                </div>
+            </div>
+            <div class="col-md-3">
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ========================================================================
+    // Apollo Lander — Browser Client
+    // ========================================================================
+
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const statusBar = document.getElementById('status-text');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlayStats = document.getElementById('overlay-stats');
+
+    // Resize canvas to fill container width while keeping aspect ratio
+    function resizeCanvas() {
+        const containerWidth = canvas.parentElement.clientWidth;
+        const aspectRatio = 600 / 1200;
+        canvas.width = containerWidth;
+        canvas.height = Math.floor(containerWidth * aspectRatio);
+    }
+    resizeCanvas();
+    window.addEventListener('resize', () => {
+        resizeCanvas();
+        if (state) render(state);
+    });
+
+    // Canvas dimensions (dynamic)
+    let W = canvas.width;
+    let H = canvas.height;
+    const BASE_SCALE = 2.0;
+
+    // Colors
+    const COL_BG = '#000';
+    const COL_SURFACE = '#b4aa96';
+    const COL_SURFACE_DETAIL = '#666';
+    const COL_LM_FILL = '#fff';
+    const COL_LM_STROKE = '#0f0';
+    const COL_FLAME = '#ff8c00';
+    const COL_HUD = '#0f0';
+    const COL_HUD_WARN = '#ff0';
+    const COL_HUD_CRIT = '#f00';
+    const COL_DSKY_BG = '#282828';
+    const COL_DSKY_BORDER = '#0f0';
+    const COL_DSKY_LABEL = '#fff';
+    const COL_DSKY_VALUE = '#0f0';
+    const COL_STAR = '#fff';
+
+    // Pre-generate stars using normalized coordinates [0,1]
+    const stars = [];
+    for (let i = 0; i < 120; i++) {
+        stars.push({
+            nx: Math.random(),
+            ny: Math.random() * 0.82,
+            r: Math.random() * 1.2 + 0.3,
+            a: Math.random() * 0.6 + 0.4
+        });
+    }
+
+    // Game state
+    let state = null;
+    let running = false;
+    let tickInterval = null;
+
+    // Keyboard state
+    const keys = {};
+    document.addEventListener('keydown', (e) => {
+        keys[e.code] = true;
+        // Prevent page scroll on arrow/pgup/pgdn
+        if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',
+             'PageUp','PageDown','Space'].includes(e.code)) {
+            e.preventDefault();
+        }
+        if (e.code === 'Enter' && state && state.game_over) {
+            resetGame();
+        }
+    });
+    document.addEventListener('keyup', (e) => {
+        keys[e.code] = false;
+    });
+
+    // ----------------------------------------------------------------
+    // API calls
+    // ----------------------------------------------------------------
+
+    async function apiReset() {
+        const resp = await fetch('/api/reset', { method: 'POST' });
+        return await resp.json();
+    }
+
+    async function apiStep(rhc, rod) {
+        const resp = await fetch('/api/step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rhc, rod })
+        });
+        return await resp.json();
+    }
+
+    // ----------------------------------------------------------------
+    // Input reading
+    // ----------------------------------------------------------------
+
+    function readAction() {
+        const rhc = [0, 0, 0];
+
+        if (keys['ArrowUp'])    rhc[0] = -0.5;  // pitch forward
+        if (keys['ArrowDown'])  rhc[0] =  0.5;  // pitch back
+        if (keys['ArrowLeft'])  rhc[1] = -0.5;  // roll left
+        if (keys['ArrowRight']) rhc[1] =  0.5;  // roll right
+        if (keys['KeyQ'])       rhc[2] = -0.5;  // yaw left
+        if (keys['KeyE'])       rhc[2] =  0.5;  // yaw right
+
+        let rod = 0;
+        if (keys['PageUp'])   rod = 1;  // decrease sink rate
+        if (keys['PageDown']) rod = 2;  // increase sink rate
+
+        return { rhc, rod };
+    }
+
+    // ----------------------------------------------------------------
+    // Rendering
+    // ----------------------------------------------------------------
+
+    function render(st) {
+        W = canvas.width;
+        H = canvas.height;
+
+        ctx.fillStyle = COL_BG;
+        ctx.fillRect(0, 0, W, H);
+
+        // Stars
+        stars.forEach(s => {
+            ctx.globalAlpha = s.a;
+            ctx.fillStyle = COL_STAR;
+            ctx.beginPath();
+            ctx.arc(s.nx * W, s.ny * H, s.r, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.globalAlpha = 1.0;
+
+        const alt = st.altitude;
+        const vv = st.vertical_velocity;
+        const vh = st.horizontal_velocity;
+        const fuel = st.fuel_remaining;
+        const mass = st.mass;
+        const targetDR = st.target_descent_rate;
+        const obs = st.obs;
+
+        // Dynamic scale
+        let scale;
+        if (alt > 10) {
+            scale = Math.min(BASE_SCALE, (H * 0.6) / Math.max(alt, 1));
+        } else {
+            scale = BASE_SCALE * 5;
+        }
+
+        // Lunar surface
+        const surfaceY = Math.floor(H * 0.85);
+        ctx.fillStyle = COL_SURFACE;
+        ctx.fillRect(0, surfaceY, W, H - surfaceY);
+
+        // Surface detail lines
+        ctx.strokeStyle = COL_SURFACE_DETAIL;
+        ctx.lineWidth = 1;
+        for (let x = 0; x < W; x += 40) {
+            ctx.beginPath();
+            ctx.moveTo(x, surfaceY);
+            ctx.lineTo(x + 15, surfaceY + 5);
+            ctx.stroke();
+        }
+
+        // Landing pad marker
+        ctx.fillStyle = '#666';
+        ctx.fillRect(W / 2 - 20, surfaceY - 2, 40, 4);
+        ctx.fillStyle = '#999';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('▼ PAD ▼', W / 2, surfaceY + 15);
+
+        // LM position on screen
+        const horizOffset = obs.length > 0 ? obs[0] * scale * 0.1 : 0;
+        let lmX = W / 2 + horizOffset;
+        let lmY = surfaceY - Math.floor(alt * scale);
+        lmY = Math.max(30, Math.min(lmY, surfaceY - 5));
+
+        const lmSize = 15;
+        const pitch = obs.length > 7 ? obs[7] : 0;
+
+        // Rotate helper: rotate point [px,py] around origin by pitch
+        const cosA = Math.cos(pitch);
+        const sinA = Math.sin(pitch);
+        function rot(px, py) {
+            return [lmX + cosA * px - sinA * py, lmY + sinA * px + cosA * py];
+        }
+
+        const s = lmSize; // base unit
+
+        // === LANDING LEGS (draw first, behind body) ===
+        // Four legs: two visible from this side, struts + footpads
+        ctx.strokeStyle = '#999';
+        ctx.lineWidth = 1.5;
+
+        // Left leg: from descent stage corner down-left
+        const legLTop = rot(-s * 0.8, s * 0.3);
+        const legLFoot = rot(-s * 1.6, s * 1.4);
+        const legLStrut = rot(-s * 0.4, s * 0.6);
+        ctx.beginPath();
+        ctx.moveTo(legLTop[0], legLTop[1]);
+        ctx.lineTo(legLFoot[0], legLFoot[1]);
+        ctx.moveTo(legLStrut[0], legLStrut[1]);
+        ctx.lineTo(legLFoot[0], legLFoot[1]);
+        ctx.stroke();
+
+        // Right leg
+        const legRTop = rot(s * 0.8, s * 0.3);
+        const legRFoot = rot(s * 1.6, s * 1.4);
+        const legRStrut = rot(s * 0.4, s * 0.6);
+        ctx.beginPath();
+        ctx.moveTo(legRTop[0], legRTop[1]);
+        ctx.lineTo(legRFoot[0], legRFoot[1]);
+        ctx.moveTo(legRStrut[0], legRStrut[1]);
+        ctx.lineTo(legRFoot[0], legRFoot[1]);
+        ctx.stroke();
+
+        // Footpads (small horizontal lines)
+        const padHL = rot(-s * 1.8, s * 1.4);
+        const padHR_l = rot(-s * 1.4, s * 1.4);
+        ctx.beginPath();
+        ctx.moveTo(padHL[0], padHL[1]);
+        ctx.lineTo(padHR_l[0], padHR_l[1]);
+        ctx.stroke();
+        const padRL = rot(s * 1.4, s * 1.4);
+        const padRR = rot(s * 1.8, s * 1.4);
+        ctx.beginPath();
+        ctx.moveTo(padRL[0], padRL[1]);
+        ctx.lineTo(padRR[0], padRR[1]);
+        ctx.stroke();
+
+        // === DESCENT STAGE (lower octagonal body, gold foil) ===
+        const descPts = [
+            rot(-s * 0.9, -s * 0.1),
+            rot(-s * 1.0, s * 0.15),
+            rot(-s * 1.0, s * 0.6),
+            rot(-s * 0.7, s * 0.8),
+            rot(s * 0.7, s * 0.8),
+            rot(s * 1.0, s * 0.6),
+            rot(s * 1.0, s * 0.15),
+            rot(s * 0.9, -s * 0.1),
+        ];
+        ctx.fillStyle = '#b8960c'; // gold mylar
+        ctx.beginPath();
+        ctx.moveTo(descPts[0][0], descPts[0][1]);
+        for (let i = 1; i < descPts.length; i++) {
+            ctx.lineTo(descPts[i][0], descPts[i][1]);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#8a7009';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Gold foil detail lines on descent stage
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+        ctx.lineWidth = 0.5;
+        for (let i = 0; i < 4; i++) {
+            const t = 0.15 + i * 0.2;
+            const dL = rot(-s * (0.95 - i * 0.05), -s * 0.1 + t * s * 0.9);
+            const dR = rot(s * (0.95 - i * 0.05), -s * 0.1 + t * s * 0.9);
+            ctx.beginPath();
+            ctx.moveTo(dL[0], dL[1]);
+            ctx.lineTo(dR[0], dR[1]);
+            ctx.stroke();
+        }
+
+        // === ENGINE BELL (below descent stage) ===
+        const bellL = rot(-s * 0.25, s * 0.8);
+        const bellR = rot(s * 0.25, s * 0.8);
+        const bellBL = rot(-s * 0.35, s * 1.1);
+        const bellBR = rot(s * 0.35, s * 1.1);
+        ctx.fillStyle = '#555';
+        ctx.beginPath();
+        ctx.moveTo(bellL[0], bellL[1]);
+        ctx.lineTo(bellBL[0], bellBL[1]);
+        ctx.lineTo(bellBR[0], bellBR[1]);
+        ctx.lineTo(bellR[0], bellR[1]);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#777';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // === ASCENT STAGE (upper boxy cabin, silver/dark) ===
+        const ascPts = [
+            rot(-s * 0.65, -s * 0.1),
+            rot(-s * 0.7, -s * 0.5),
+            rot(-s * 0.5, -s * 0.85),
+            rot(-s * 0.15, -s * 1.0),
+            rot(s * 0.15, -s * 1.0),
+            rot(s * 0.5, -s * 0.85),
+            rot(s * 0.7, -s * 0.5),
+            rot(s * 0.65, -s * 0.1),
+        ];
+        ctx.fillStyle = '#888'; // silver/aluminum
+        ctx.beginPath();
+        ctx.moveTo(ascPts[0][0], ascPts[0][1]);
+        for (let i = 1; i < ascPts.length; i++) {
+            ctx.lineTo(ascPts[i][0], ascPts[i][1]);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#666';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Cabin window (triangular, as on real LM)
+        const winTL = rot(-s * 0.35, -s * 0.75);
+        const winTR = rot(-s * 0.1, -s * 0.85);
+        const winBL = rot(-s * 0.4, -s * 0.5);
+        ctx.fillStyle = '#224';
+        ctx.beginPath();
+        ctx.moveTo(winTL[0], winTL[1]);
+        ctx.lineTo(winTR[0], winTR[1]);
+        ctx.lineTo(winBL[0], winBL[1]);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#aaa';
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+
+        // Right window
+        const winTL2 = rot(s * 0.1, -s * 0.85);
+        const winTR2 = rot(s * 0.35, -s * 0.75);
+        const winBR2 = rot(s * 0.4, -s * 0.5);
+        ctx.fillStyle = '#224';
+        ctx.beginPath();
+        ctx.moveTo(winTL2[0], winTL2[1]);
+        ctx.lineTo(winTR2[0], winTR2[1]);
+        ctx.lineTo(winBR2[0], winBR2[1]);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#aaa';
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+
+        // === RCS QUAD (small box on right side) ===
+        const rcsP = [
+            rot(s * 0.7, -s * 0.45),
+            rot(s * 0.9, -s * 0.45),
+            rot(s * 0.9, -s * 0.25),
+            rot(s * 0.7, -s * 0.25),
+        ];
+        ctx.fillStyle = '#666';
+        ctx.beginPath();
+        ctx.moveTo(rcsP[0][0], rcsP[0][1]);
+        for (let i = 1; i < rcsP.length; i++) ctx.lineTo(rcsP[i][0], rcsP[i][1]);
+        ctx.closePath();
+        ctx.fill();
+
+        // === RENDEZVOUS ANTENNA (top) ===
+        const antBase = rot(0, -s * 1.0);
+        const antTop = rot(0, -s * 1.5);
+        ctx.strokeStyle = '#aaa';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(antBase[0], antBase[1]);
+        ctx.lineTo(antTop[0], antTop[1]);
+        ctx.stroke();
+        // Small dish
+        const antL = rot(-s * 0.2, -s * 1.45);
+        const antR = rot(s * 0.2, -s * 1.45);
+        ctx.beginPath();
+        ctx.moveTo(antL[0], antL[1]);
+        ctx.quadraticCurveTo(antTop[0], antTop[1] - 3, antR[0], antR[1]);
+        ctx.stroke();
+
+        // === THRUST FLAME ===
+        if (fuel > 0 && alt > 0) {
+            const thrustRatio = Math.min(mass / 10000, 1.0);
+            const flameLen = Math.floor(s * 1.2 * thrustRatio);
+            const flameBase = rot(0, s * 1.1);
+            const flameTip = rot((Math.random() - 0.5) * 3, s * 1.1 + flameLen + 5);
+            const flameL = rot(-s * 0.3, s * 1.1);
+            const flameR = rot(s * 0.3, s * 1.1);
+
+            // Outer flame (orange)
+            ctx.fillStyle = COL_FLAME;
+            ctx.beginPath();
+            ctx.moveTo(flameL[0], flameL[1]);
+            ctx.lineTo(flameR[0], flameR[1]);
+            ctx.lineTo(flameTip[0], flameTip[1]);
+            ctx.closePath();
+            ctx.fill();
+
+            // Inner flame (yellow-white)
+            const flameTipInner = rot((Math.random() - 0.5) * 1.5, s * 1.1 + flameLen * 0.6);
+            const flameIL = rot(-s * 0.12, s * 1.1);
+            const flameIR = rot(s * 0.12, s * 1.1);
+            ctx.fillStyle = '#ffee55';
+            ctx.beginPath();
+            ctx.moveTo(flameIL[0], flameIL[1]);
+            ctx.lineTo(flameIR[0], flameIR[1]);
+            ctx.lineTo(flameTipInner[0], flameTipInner[1]);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Altitude indicator line
+        if (alt > 5 && alt < 200) {
+            const altLineBot = rot(0, s * 1.4);
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.2)';
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(altLineBot[0], altLineBot[1]);
+            ctx.lineTo(lmX, surfaceY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // HUD overlay (left side)
+        drawHUD(alt, vv, vh, fuel, targetDR);
+
+        // DSKY panel (right side)
+        drawDSKY(alt, vv, vh, targetDR);
+    }
+
+    function drawHUD(alt, vv, vh, fuel, targetDR) {
+        const x = 15;
+        const y = 20;
+        const lineH = 24;
+
+        ctx.font = '16px Courier New';
+        ctx.textAlign = 'left';
+
+        const lines = [
+            { label: `ALT:  ${alt.toFixed(1).padStart(8)} m`,  color: COL_HUD },
+            { label: `VVEL: ${vv.toFixed(2).padStart(8)} m/s`, color: Math.abs(vv) > 3 ? COL_HUD_WARN : COL_HUD },
+            { label: `HVEL: ${vh.toFixed(2).padStart(8)} m/s`, color: vh > 1 ? COL_HUD_WARN : COL_HUD },
+            { label: `FUEL: ${fuel.toFixed(1).padStart(8)} kg`, color: fuel < 500 ? COL_HUD_CRIT : (fuel < 1500 ? COL_HUD_WARN : COL_HUD) },
+            { label: `RATE: ${targetDR.toFixed(2).padStart(8)} m/s`, color: COL_HUD },
+        ];
+
+        // Semi-transparent background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(x - 5, y - 15, 250, lines.length * lineH + 10);
+
+        lines.forEach((line, i) => {
+            ctx.fillStyle = line.color;
+            ctx.fillText(line.label, x, y + i * lineH);
+        });
+    }
+
+    function drawDSKY(alt, vv, vh, targetDR) {
+        // Convert to Apollo DSKY units:
+        // R1: altitude in feet × 100 (displayed as XXXXX, so divide by 100 to read ft)
+        // R2: altitude rate in ft/s × 100
+        // R3: commanded descent rate in ft/s × 100
+        const M_TO_FT = 3.28084;
+        const altFt100 = Math.round(alt * M_TO_FT * 100);
+        const vvFt100 = Math.round(vv * M_TO_FT * 100);
+        const drFt100 = Math.round(targetDR * M_TO_FT * 100);
+
+        const dw = 220;
+        const dh = 310;
+        const dx = W - dw - 15;
+        const dy = 15;
+
+        // === Outer panel (dark gray bezel) ===
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(dx - 4, dy - 4, dw + 8, dh + 8);
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(dx - 4, dy - 4, dw + 8, dh + 8);
+
+        // Inner panel background
+        ctx.fillStyle = '#0a0a0a';
+        ctx.fillRect(dx, dy, dw, dh);
+
+        // === Status lights (left column) ===
+        const lightX = dx + 12;
+        const lightW = 50;
+        const lightH = 14;
+        const lights = [
+            { label: 'UPLINK', color: '#333', y: dy + 15 },
+            { label: 'TEMP',   color: '#333', y: dy + 35 },
+            { label: 'NO ATT', color: '#333', y: dy + 55 },
+            { label: 'GIMBAL', color: '#333', y: dy + 75 },
+            { label: 'PROG',   color: '#c8a800', y: dy + 95 },
+            { label: 'TRACKER', color: '#333', y: dy + 115 },
+        ];
+
+        lights.forEach(l => {
+            ctx.fillStyle = l.color;
+            ctx.fillRect(lightX, l.y, lightW, lightH);
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(lightX, l.y, lightW, lightH);
+            ctx.fillStyle = l.color === '#333' ? '#555' : '#000';
+            ctx.font = 'bold 9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(l.label, lightX + lightW / 2, l.y + 11);
+        });
+
+        // === COMP ACTY light ===
+        const caX = dx + 80;
+        const caY = dy + 12;
+        ctx.fillStyle = '#0a5a0a';
+        ctx.fillRect(caX, caY, 55, 18);
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(caX, caY, 55, 18);
+        ctx.fillStyle = '#0f0';
+        ctx.font = 'bold 8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('COMP', caX + 27, caY + 9);
+        ctx.fillText('ACTY', caX + 27, caY + 16);
+
+        // === EL display area (right portion) ===
+        const elX = dx + 80;
+        const elY = dy + 38;
+        const elW = 130;
+        const elH = 260;
+
+        // Display background (very dark green-black)
+        ctx.fillStyle = '#050d05';
+        ctx.fillRect(elX, elY, elW, elH);
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(elX, elY, elW, elH);
+
+        // Helper: draw a DSKY digit group (green 7-seg style text)
+        function dskyDigits(text, x, y, size) {
+            ctx.font = `bold ${size}px 'Courier New', monospace`;
+            ctx.fillStyle = '#00ff41';
+            ctx.textAlign = 'right';
+            ctx.fillText(text, x, y);
+        }
+
+        // Helper: draw a small label above a field
+        function dskyLabel(text, x, y) {
+            ctx.font = 'bold 9px sans-serif';
+            ctx.fillStyle = '#888';
+            ctx.textAlign = 'center';
+            ctx.fillText(text, x, y);
+        }
+
+        // === PROG / VERB / NOUN row ===
+        const rowY1 = elY + 8;
+
+        // PROG
+        dskyLabel('PROG', elX + 22, rowY1 + 8);
+        ctx.fillStyle = '#0a1a0a';
+        ctx.fillRect(elX + 5, rowY1 + 12, 38, 22);
+        dskyDigits('66', elX + 40, rowY1 + 30, 16);
+
+        // Separator line
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(elX + 2, rowY1 + 40);
+        ctx.lineTo(elX + elW - 2, rowY1 + 40);
+        ctx.stroke();
+
+        // VERB / NOUN
+        const rowY2 = rowY1 + 44;
+        dskyLabel('VERB', elX + 30, rowY2 + 8);
+        dskyLabel('NOUN', elX + 100, rowY2 + 8);
+
+        ctx.fillStyle = '#0a1a0a';
+        ctx.fillRect(elX + 10, rowY2 + 12, 38, 22);
+        ctx.fillRect(elX + 80, rowY2 + 12, 38, 22);
+        dskyDigits('16', elX + 45, rowY2 + 30, 16);
+        dskyDigits('68', elX + 115, rowY2 + 30, 16);
+
+        // Separator line
+        ctx.strokeStyle = '#444';
+        ctx.beginPath();
+        ctx.moveTo(elX + 2, rowY2 + 40);
+        ctx.lineTo(elX + elW - 2, rowY2 + 40);
+        ctx.stroke();
+
+        // === Register displays (R1, R2, R3) ===
+        const regStartY = rowY2 + 48;
+        const regH = 28;
+        const regGap = 8;
+
+        function formatReg(val) {
+            const sign = val >= 0 ? '+' : '-';
+            const abs = Math.min(Math.abs(val), 99999);
+            return sign + String(abs).padStart(5, '0');
+        }
+
+        const regs = [
+            formatReg(altFt100),
+            formatReg(vvFt100),
+            formatReg(drFt100),
+        ];
+
+        regs.forEach((regText, i) => {
+            const ry = regStartY + i * (regH + regGap);
+
+            // Register background
+            ctx.fillStyle = '#0a1a0a';
+            ctx.fillRect(elX + 5, ry, elW - 10, regH);
+
+            // Sign (+ is green, - is orange-ish on real DSKY but we keep green)
+            const sign = regText[0];
+            const digits = regText.slice(1);
+
+            // Sign indicator: small +/- box
+            ctx.fillStyle = sign === '+' ? '#00ff41' : '#00ff41';
+            ctx.font = 'bold 18px Courier New';
+            ctx.textAlign = 'left';
+            ctx.fillText(sign, elX + 8, ry + 21);
+
+            // Digits
+            ctx.font = 'bold 20px Courier New';
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#00ff41';
+            ctx.fillText(digits, elX + elW - 10, ry + 22);
+
+            // Thin separator after each register (except last)
+            if (i < 2) {
+                ctx.strokeStyle = '#333';
+                ctx.beginPath();
+                ctx.moveTo(elX + 2, ry + regH + regGap / 2);
+                ctx.lineTo(elX + elW - 2, ry + regH + regGap / 2);
+                ctx.stroke();
+            }
+        });
+
+        // === Outer labels for R1/R2/R3 (outside EL panel) ===
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillStyle = '#666';
+        ctx.textAlign = 'right';
+        const regLabels = ['R1', 'R2', 'R3'];
+        regLabels.forEach((lbl, i) => {
+            const ry = regStartY + i * (regH + regGap) + regH / 2 + 3;
+            ctx.fillText(lbl, elX - 3, ry);
+        });
+    }
+
+    // ----------------------------------------------------------------
+    // Game loop
+    // ----------------------------------------------------------------
+
+    async function resetGame() {
+        overlay.style.display = 'none';
+        state = await apiReset();
+        render(state);
+        running = true;
+        statusBar.textContent = 'P66 ACTIVE — Fly the Lunar Module';
+    }
+
+    async function tick() {
+        if (!running || !state || state.game_over) return;
+
+        const action = readAction();
+        state = await apiStep(action.rhc, action.rod);
+        render(state);
+
+        // Update status bar
+        const step = state.obs.length > 0 ? '' : '';
+        statusBar.textContent =
+            `ALT ${state.altitude.toFixed(0)}m | ` +
+            `Vv ${state.vertical_velocity.toFixed(1)}m/s | ` +
+            `Fuel ${state.fuel_remaining.toFixed(0)}kg | ` +
+            `Reward ${state.total_reward.toFixed(0)}`;
+
+        if (state.game_over) {
+            running = false;
+            showGameOver();
+        }
+    }
+
+    function showGameOver() {
+        const success = state.landing_success;
+        const reason = state.termination_reason || '';
+
+        if (success) {
+            overlayTitle.textContent = '★ TRANQUILITY BASE HERE ★';
+            overlayTitle.className = 'success';
+        } else if (reason === 'crash') {
+            overlayTitle.textContent = '✦ CRASH ✦';
+            overlayTitle.className = 'failure';
+        } else if (reason === 'fuel') {
+            overlayTitle.textContent = '✦ FUEL EXHAUSTED ✦';
+            overlayTitle.className = 'failure';
+        } else if (reason === 'timeout') {
+            overlayTitle.textContent = '✦ TIMEOUT ✦';
+            overlayTitle.className = 'failure';
+        } else {
+            overlayTitle.textContent = '✦ ABORT ✦';
+            overlayTitle.className = 'failure';
+        }
+
+        // Build explanation for crash
+        let detail = '';
+        if (reason === 'crash') {
+            const vvAbs = Math.abs(state.vertical_velocity);
+            const vhAbs = Math.abs(state.horizontal_velocity);
+            const vvOk = vvAbs <= 1.2;
+            const vhOk = vhAbs <= 0.6;
+            if (!vvOk) detail += `Vertical vel ${vvAbs.toFixed(2)} m/s exceeded 1.2 m/s limit<br>`;
+            if (!vhOk) detail += `Horizontal vel ${vhAbs.toFixed(2)} m/s exceeded 0.6 m/s limit<br>`;
+        } else if (reason === 'fuel') {
+            detail = 'Descent engine propellant depleted before touchdown.<br>';
+        } else if (reason === 'timeout') {
+            detail = 'Descent took too long — max simulation steps reached.<br>';
+        }
+
+        overlayStats.innerHTML =
+            detail +
+            `Final altitude: ${state.altitude.toFixed(1)} m<br>` +
+            `Vertical vel: ${state.vertical_velocity.toFixed(2)} m/s<br>` +
+            `Horizontal vel: ${state.horizontal_velocity.toFixed(2)} m/s<br>` +
+            `Fuel remaining: ${state.fuel_remaining.toFixed(1)} kg<br>` +
+            `Total reward: ${state.total_reward.toFixed(1)}`;
+
+        overlay.style.display = 'block';
+    }
+
+    // ----------------------------------------------------------------
+    // Startup
+    // ----------------------------------------------------------------
+
+    async function init() {
+        await resetGame();
+        // 10 Hz game loop = DAP rate
+        tickInterval = setInterval(tick, 100);
+    }
+
+    init();
+    </script>
+</body>
+</html>

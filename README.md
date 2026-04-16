@@ -1,102 +1,164 @@
-# AI-Assisted Python Package Template
+# Apollo Lander
 
-A minimal, streamlined template for scientists who want to build Python packages using AI assistance—no software engineering experience required.
+A Python simulation of the Apollo Lunar Module descent, based on the real Apollo 11 [Luminary099](https://github.com/chrislgarry/Apollo-11/tree/master/Luminary099) AGC code. Fly the spacecraft manually using authentic Program 66 controls, or train a reinforcement learning agent to land autonomously.
 
-## 🎯 What is this?
+## Overview
 
-This template gives you a clean starting structure for building Python packages with AI tools like GitHub Copilot. It includes:
-- Basic Python package structure 
-- Example code showing best practices
-- Test setup with pytest
-- **Comprehensive AI instructions** to guide development
+The simulation ports the mathematical logic from the Apollo Guidance Computer into a modern Python environment:
 
-It's designed to be **simple enough to understand** but **complete enough to build on**.
+- **RK4 physics engine** with lunar orbital mechanics, thrust, and mass depletion
+- **P66 guidance system** replicating the astronaut's actual control interface — Rotational Hand Controller (attitude rates) and Rate of Descent switch (1 ft/s sink rate increments)
+- **Gymnasium environment** (`ApolloLander-v0`) for RL training and evaluation
+- **Browser-based UI** (Flask + HTML5 Canvas) with 2D side-profile view, HUD, and DSKY-style display
 
-## 🚀 Quick Start (3 steps)
+## Quick Start
 
-### 1. Create your repository
-Click "Use this template" on GitHub, or clone and rename this repo.
+### Install
 
-### 2. Set up your environment
 ```bash
-# Create and activate a virtual environment
+# Clone the repo
+git clone https://github.com/yourusername/apollo.git
+cd apollo
+
+# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Install with dev dependencies
-pip install -e ".[dev]"
+# Install core package
+pip install -e "."
+
+# Install with all extras (rendering + RL training + dev tools)
+pip install -e ".[all]"
 ```
 
-### 3. Customize and start building
-```bash
-# Rename the package (example)
-mv src/package_name src/my_package
-
-# Update pyproject.toml with your details
-# Then start coding!
-```
-
-**Read [docs/getting-started.md](docs/getting-started.md) for detailed setup instructions.**
-
-## 🤖 AI-Assisted Development
-
-This template is optimized for working with GitHub Copilot and other AI assistants. The key workflow is:
-
-1. **Assess** - Ask Copilot to examine your current code
-2. **Plan** - Get an itemized plan before implementation  
-3. **Implement** - Build features step by step
-4. **Test** - Verify each change works
-5. **Review** - Get code review from AI after major changes
-6. **Record** - Key findings are saved to [docs/ground_truths.md](docs/ground_truths.md) so context persists across sessions
-
-**See [.github/copilot-instructions.md](.github/copilot-instructions.md)** - This file contains detailed instructions that tell Copilot how to help you effectively.
-
-## 📦 What's Included
-
-```
-├── .github/
-│   ├── copilot-instructions.md    # AI assistant configuration
-│   └── workflows/                 # CI/CD (tests, linting)
-├── src/package_name/              # Your Python package
-│   ├── __init__.py                # Package initialization
-│   └── cli.py                     # Simple "Hello AI" CLI example
-├── tests/
-│   └── test_cli.py                # Example CLI tests
-├── docs/
-│   ├── getting-started.md         # Setup guide
-│   └── ground_truths.md           # Key findings & decisions log
-├── pyproject.toml                 # Package configuration
-└── README.md                      # This file
-```
-
-## 🧪 Running Tests
+### Play manually
 
 ```bash
-pytest                              # Run all tests
-pytest --cov=src/package_name      # With coverage report
-pytest -v                           # Verbose output
+apollo play
 ```
 
-## 💡 Tips for Getting Started
+This opens the simulation in your web browser at `http://127.0.0.1:5000`.
 
-1. **Start simple** - Replace the example code with one function you need
-2. **Describe your project** - Fill out [docs/project.md](docs/project.md) to help Copilot understand what you're building
-3. **Let AI help** - Ask Copilot to assess and plan before implementing
-4. **Test as you go** - Run pytest after each feature
-5. **Keep ground truths** - Key findings are logged in [docs/ground_truths.md](docs/ground_truths.md) so AI remembers context between sessions
-6. **Commit often** - Small commits are easier to track
-7. **Read the AI instructions** - [.github/copilot-instructions.md](.github/copilot-instructions.md) explains the recommended workflow
+**Controls:**
+| Key | Action |
+|-----|--------|
+| Arrow keys | Pitch / Roll (Rotational Hand Controller) |
+| Q / E | Yaw |
+| Page Up | Decrease sink rate (ROD up, −1 ft/s) |
+| Page Down | Increase sink rate (ROD down, +1 ft/s) |
+| Escape | Quit |
 
-## 🆘 Getting Help
+### Train an RL agent
 
-- **Ask Copilot directly**: "Assess my code and suggest next steps"
-- **Read the getting started guide**: [docs/getting-started.md](docs/getting-started.md)
-- **Check the example code**: See [src/package_name/cli.py](src/package_name/cli.py) for a simple CLI pattern
+```bash
+pip install -e ".[rl]"
+apollo train --algo ppo --timesteps 500000
+apollo evaluate --model models/apollo_lander --episodes 50
+```
 
-## 📄 License
+### Use as a Gymnasium environment
 
-BSD 3-Clause License - see [LICENSE](LICENSE) file for details.
+```python
+import apollo_lander.envs
+import gymnasium as gym
 
----
+env = gym.make("ApolloLander-v0")
+obs, info = env.reset()
+
+for _ in range(1000):
+    action = env.action_space.sample()
+    obs, reward, terminated, truncated, info = env.step(action)
+    if terminated or truncated:
+        obs, info = env.reset()
+
+env.close()
+```
+
+## Architecture
+
+```
+Agent/Human Input (action)
+        │
+        ▼
+┌─────────────────────────┐
+│  Gymnasium Environment  │  ← ApolloLander-v0
+│  ┌───────────────────┐  │
+│  │ P66 Guidance/DAP  │  │  ← Translates actions → thrust vectors
+│  └────────┬──────────┘  │
+│  ┌────────▼──────────┐  │
+│  │ RK4 Physics Engine│  │  ← Lunar orbital mechanics + mass depletion
+│  └───────────────────┘  │
+│  → obs, reward, done    │
+└─────────────────────────┘
+        │
+        ▼
+  Web UI (Flask)            ← Browser-based Canvas renderer
+```
+
+## Project Structure
+
+```
+src/apollo_lander/
+├── constants.py          # Physical constants (lunar gravity, DPS specs, LM masses)
+├── physics.py            # RK4 integrator and equations of motion (7D state vector)
+├── transforms.py         # Body ↔ World frame coordinate rotations
+├── guidance.py           # P66 guidance: RHC attitude, ROD descent rate, AGC throttle
+├── wrappers.py           # FlatActionWrapper for Stable Baselines3 compatibility
+├── webapp.py             # Flask web app with REST API
+├── renderer.py           # Backward-compat entry point (launches webapp)
+├── templates/
+│   └── index.html        # HTML5 Canvas game with DSKY panel
+├── manual.py             # Manual play mode (launches Flask server)
+├── train.py              # RL training with PPO/SAC
+├── evaluate.py           # Trained model evaluation
+├── cli.py                # CLI entry points (apollo play/train/evaluate)
+└── envs/
+    ├── __init__.py       # Registers ApolloLander-v0
+    └── apollo_lander_env.py  # Gymnasium environment
+tests/
+├── test_physics.py       # Physics engine and RK4 tests
+├── test_guidance.py      # P66 controller and coordinate transform tests
+├── test_env.py           # Gymnasium environment tests
+└── test_cli.py           # CLI tests
+```
+
+## How It Works
+
+In the real Apollo 11 landing, the astronaut didn't fly the Lunar Module like a helicopter. They flew **through the computer** using Program 66 (P66):
+
+1. **Rotational Hand Controller (RHC):** A 3-axis joystick that commanded attitude *rates* (not positions). Push forward → the AGC pitches the craft forward at up to 20°/s. Release → the Digital Autopilot fires opposite RCS jets to hold that attitude.
+
+2. **Rate of Descent (ROD) switch:** A spring-loaded toggle. Each click adjusted the AGC's target sink rate by exactly 1 ft/s (0.3048 m/s). The AGC then automatically throttled the Descent Propulsion System to maintain that rate.
+
+3. **Descent Propulsion System (DPS):** The main engine, throttleable from 10% to 100% (4,504 N to 45,040 N). The AGC controlled the throttle — the astronaut never touched it directly.
+
+This simulation replicates exactly that control scheme.
+
+## Running Tests
+
+```bash
+pytest                    # Run all 29 tests
+pytest -v                 # Verbose output
+pytest tests/test_physics.py  # Physics tests only
+```
+
+## Dependencies
+
+| Group | Packages |
+|-------|----------|
+| Core | numpy, scipy, gymnasium, click |
+| Web UI | flask |
+| RL Training | stable-baselines3, tensorboard |
+| Development | pytest, pytest-cov, ruff, black, mypy |
+
+## Documentation
+
+- [docs/project.md](docs/project.md) — Project overview and specifications
+- [docs/ground_truths.md](docs/ground_truths.md) — Key findings and design decisions
+- [docs/getting-started.md](docs/getting-started.md) — Detailed setup guide
+
+## License
+
+BSD 3-Clause License — see [LICENSE](LICENSE) for details.
 
 **Ready?** Open [docs/getting-started.md](docs/getting-started.md) to begin, or ask Copilot: "Help me customize this template for my project."

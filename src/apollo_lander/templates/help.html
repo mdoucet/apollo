@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apollo Lander — Flight Manual</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+    <style>
+        body {
+            background-color: #111;
+            color: #ccc;
+            font-family: 'Courier New', monospace;
+        }
+        h1, h2, h3 {
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+        }
+        h1 { border-bottom: 1px solid #333; padding-bottom: 10px; }
+        h2 { margin-top: 2rem; }
+        h3 { color: #00cc44; font-size: 1.1rem; margin-top: 1.5rem; }
+        a { color: #0f0; }
+        a:hover { color: #0f0; text-decoration: underline; }
+        kbd {
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 2px 6px;
+            font-size: 13px;
+            border-radius: 3px;
+        }
+        code {
+            color: #0f0;
+            background: #1a1a1a;
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+        .info-box {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 16px;
+            margin: 12px 0;
+        }
+        .info-box.gold {
+            border-color: #b8960c;
+        }
+        .info-box.green {
+            border-color: #0a5a0a;
+        }
+        table {
+            width: 100%;
+            margin: 12px 0;
+        }
+        table th {
+            color: #0f0;
+            border-bottom: 1px solid #333;
+            padding: 6px 10px;
+            text-align: left;
+        }
+        table td {
+            padding: 6px 10px;
+            border-bottom: 1px solid #1a1a1a;
+        }
+        .diagram {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 20px;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-x: auto;
+            white-space: pre;
+            color: #0f0;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 1rem;
+            color: #0f0;
+            text-decoration: none;
+            border: 1px solid #333;
+            padding: 4px 12px;
+            border-radius: 4px;
+        }
+        .back-link:hover {
+            background: #1a1a1a;
+            color: #0f0;
+        }
+        .highlight { color: #0f0; }
+        .warn { color: #ff0; }
+        .crit { color: #f00; }
+    </style>
+</head>
+<body>
+    <div class="container py-4" style="max-width: 900px;">
+
+        <a href="/" class="back-link">← Back to Simulator</a>
+
+        <h1>APOLLO LANDER — FLIGHT MANUAL</h1>
+        <p>
+            This simulator models the final phase of the Apollo Lunar Module (LM) descent,
+            known as <strong>Program 66 (P66)</strong>. During P66, the astronaut takes
+            semi-manual control for the last ~150 meters to the lunar surface.
+        </p>
+
+        <!-- ============================================================ -->
+        <h2>1. THE TWO TIMING LOOPS</h2>
+
+        <p>
+            The simulation runs two nested timing loops, matching how the real
+            Apollo Guidance Computer (AGC) operated:
+        </p>
+
+        <div class="info-box green">
+            <h3>Fast Loop — DAP Cycle (0.1 seconds, 10 Hz)</h3>
+            <p>
+                The <strong>Digital Autopilot (DAP)</strong> runs every
+                <code>0.1 seconds</code>. Each "tick" of the game corresponds to
+                one DAP cycle. This is where moment-to-moment control happens:
+            </p>
+            <ol>
+                <li><strong>Read pilot inputs</strong> — your keyboard presses are sampled</li>
+                <li><strong>Update attitude target</strong> — RHC deflections are integrated into the desired orientation</li>
+                <li><strong>Update descent rate target</strong> — ROD switch clicks adjust the target sink rate</li>
+                <li><strong>Compute thrust</strong> — a PI controller calculates engine throttle to track the target descent rate</li>
+                <li><strong>Advance physics</strong> — the state vector (position, velocity, mass) is updated using a 4th-order Runge-Kutta integrator</li>
+                <li><strong>Render frame</strong> — the canvas redraws with the new state</li>
+            </ol>
+            <p>
+                In the real AGC, this was the <strong>T6 RUPT</strong> — a hardware interrupt
+                that fired every ~100 ms to run the DAP code (see <code>SERVICER.agc</code>).
+            </p>
+            <p style="color:#888;">
+                In the browser, <code>setInterval(tick, 100)</code> drives this loop.
+                Each tick sends your current keyboard state to the server, which runs
+                one <code>env.step()</code>, and the result is rendered on canvas.
+            </p>
+        </div>
+
+        <div class="info-box gold">
+            <h3>Slow Loop — Guidance Cycle (2.0 seconds, 0.5 Hz)</h3>
+            <p>
+                Every <code>2.0 seconds</code> (every 20th DAP cycle), the full
+                <strong>P66 guidance equations</strong> are recalculated. This is a heavier
+                computation that updates the overall descent strategy:
+            </p>
+            <ul>
+                <li>Recalculate trajectory constraints</li>
+                <li>Update gravity compensation terms</li>
+                <li>Recompute the throttle bias (FWEIGHT)</li>
+            </ul>
+            <p>
+                In the real AGC, this was the <strong>SERVICER READACCS</strong> task,
+                stored as <code>2SECS = DEC 200</code> (in centiseconds) in
+                <code>SERVICER.agc</code>. The related constant
+                <code>4SECS = DEC 400</code> (2 × guidance period) was used in
+                the P66 FWEIGHT calculation.
+            </p>
+        </div>
+
+        <div class="diagram">
+Time ──────────────────────────────────────────────────────────────►
+
+DAP:  |·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|·|
+      0.1s each                                         ↑ every tick
+
+GUID: |·· · · · · · · · · ·|· · · · · · · · · ·|· · · · · · · · ·
+      2.0s each             ↑ guidance recalc    ↑ guidance recalc
+
+      ├─── 20 DAP cycles ──┤
+        </div>
+
+        <!-- ============================================================ -->
+        <h2>2. CONTROLS</h2>
+
+        <h3>Rotational Hand Controller (RHC)</h3>
+        <p>
+            The RHC commands <strong>attitude rates</strong>, not absolute angles.
+            While you hold a key, the LM rotates at up to
+            <code>20°/s</code> (<code>MAX_ROTATION_RATE = 0.349 rad/s</code>)
+            on that axis. When you release the key, the DAP holds the current attitude.
+        </p>
+
+        <table>
+            <thead>
+                <tr><th>Key</th><th>Axis</th><th>Effect</th><th>RHC Value</th></tr>
+            </thead>
+            <tbody>
+                <tr><td><kbd>↑</kbd></td><td>Pitch</td><td>Pitch forward (nose down)</td><td>−0.5</td></tr>
+                <tr><td><kbd>↓</kbd></td><td>Pitch</td><td>Pitch back (nose up)</td><td>+0.5</td></tr>
+                <tr><td><kbd>←</kbd></td><td>Roll</td><td>Roll left</td><td>−0.5</td></tr>
+                <tr><td><kbd>→</kbd></td><td>Roll</td><td>Roll right</td><td>+0.5</td></tr>
+                <tr><td><kbd>Q</kbd></td><td>Yaw</td><td>Yaw left</td><td>−0.5</td></tr>
+                <tr><td><kbd>E</kbd></td><td>Yaw</td><td>Yaw right</td><td>+0.5</td></tr>
+            </tbody>
+        </table>
+
+        <p>
+            The RHC deflection (±0.5 in this sim) is multiplied by the max rotation rate
+            each DAP cycle. So holding <kbd>↑</kbd> for one tick rotates the target attitude
+            by: <code>0.5 × 0.349 × 0.1 ≈ 0.017 rad ≈ 1° per tick</code>.
+        </p>
+        <p style="color:#888;">
+            On the real LM, the RHC was a pistol-grip stick between the two astronauts.
+            The commander used it with his right hand while looking out the left window.
+        </p>
+
+        <h3>Rate of Descent (ROD) Switch</h3>
+        <p>
+            The ROD switch adjusts your <strong>target descent rate</strong> in discrete
+            <code>1 ft/s</code> (<code>0.3048 m/s</code>) increments. This is the setpoint
+            that the AGC's throttle controller tries to maintain.
+        </p>
+
+        <table>
+            <thead>
+                <tr><th>Key</th><th>Effect</th><th>Result</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><kbd>PgUp</kbd></td>
+                    <td>Decrease sink rate (−1 ft/s)</td>
+                    <td>Descent gets <span class="highlight">slower</span> — target rate becomes less negative</td>
+                </tr>
+                <tr>
+                    <td><kbd>PgDn</kbd></td>
+                    <td>Increase sink rate (+1 ft/s)</td>
+                    <td>Descent gets <span class="warn">faster</span> — target rate becomes more negative</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-box">
+            <strong>Example:</strong> If your target descent rate is −5 ft/s (−1.52 m/s)
+            and you tap <kbd>PgUp</kbd> twice, the new target becomes −3 ft/s (−0.91 m/s).
+            The AGC automatically adjusts the DPS throttle to slow your descent to this rate.
+            <br><br>
+            <strong>Initial rate:</strong> P66 starts with a target of
+            <code>−5 ft/s</code> (<code>−1.524 m/s</code>). You'll want to gradually
+            decrease this to about <code>−1 ft/s</code> as you approach the surface.
+        </div>
+
+        <p style="color:#888;">
+            On the real LM, the ROD switch was a toggle on the commander's armrest.
+            Each click up or down changed the VDGVERT register in the AGC by exactly
+            1 ft/s, as defined by the <code>RODSCAL1</code> constant in
+            <code>LUNAR_LANDING_GUIDANCE_EQUATIONS.agc</code>.
+        </p>
+
+        <!-- ============================================================ -->
+        <h2>3. HOW CONTROLS INTERACT WITH TIMING</h2>
+
+        <div class="info-box green">
+            <p>
+                Your inputs are sampled at the <strong>DAP rate (10 Hz)</strong>,
+                not the guidance rate. This means:
+            </p>
+            <ul>
+                <li>
+                    <strong>RHC is continuous:</strong> Hold a key and the attitude changes
+                    smoothly, ~1° per tick (0.1s). The DAP integrates your stick position
+                    every cycle.
+                </li>
+                <li>
+                    <strong>ROD is discrete:</strong> Each key press changes the target by
+                    exactly 1 ft/s. The throttle PI controller then adjusts engine power
+                    every DAP cycle (0.1s) to converge on the new target.
+                </li>
+                <li>
+                    <strong>Guidance runs in the background:</strong> Every 2 seconds,
+                    the P66 guidance loop recalculates trajectory parameters. Between
+                    guidance cycles, the DAP maintains thrust based on the most recent
+                    guidance solution.
+                </li>
+            </ul>
+        </div>
+
+        <div class="diagram">
+Pilot presses PgUp at t=0.0
+│
+├─ t=0.0  DAP cycle:  target_descent_rate += 0.3048 m/s (1 ft/s slower)
+├─ t=0.1  DAP cycle:  PI controller adjusts throttle toward new rate
+├─ t=0.2  DAP cycle:  throttle continues converging...
+├─ ...
+├─ t=2.0  GUIDANCE:   full P66 recalc, updates gravity compensation
+├─ t=2.1  DAP cycle:  uses updated guidance terms
+├─ ...
+        </div>
+
+        <!-- ============================================================ -->
+        <h2>4. THE DSKY: VERB AND NOUN</h2>
+
+        <p>
+            The <strong>DSKY</strong> (Display and Keyboard, pronounced "dis-key") was
+            the astronaut's interface to the Apollo Guidance Computer. It used a
+            <strong>Verb-Noun</strong> command language — similar to how English
+            sentences have an action (verb) and a subject (noun).
+        </p>
+
+        <div class="info-box gold">
+            <h3>Verb-Noun System</h3>
+            <p>
+                The astronaut would key in a two-digit Verb and a two-digit Noun to
+                tell the AGC what to do with what data. For example:
+            </p>
+            <ul>
+                <li><strong>VERB 06</strong> = "Display (decimal)" → show me data</li>
+                <li><strong>VERB 16</strong> = "Monitor (routinely)" → keep showing me this data, updating continuously</li>
+                <li><strong>VERB 37</strong> = "Change program" → switch to a different program</li>
+                <li><strong>VERB 50</strong> = "Please perform" → AGC asks the crew to do something</li>
+            </ul>
+            <p>
+                <strong>Nouns</strong> specified which data to display or act on:
+            </p>
+            <ul>
+                <li><strong>NOUN 43</strong> = Geographic position (lat, lon, alt)</li>
+                <li><strong>NOUN 62</strong> = Velocity components</li>
+                <li><strong>NOUN 68</strong> = Landing parameters (alt, alt-rate, descent-rate)</li>
+            </ul>
+        </div>
+
+        <h3>V16 N68 — What You See During P66</h3>
+        <p>
+            During the final descent, the DSKY automatically displays
+            <strong>Verb 16, Noun 68</strong>:
+        </p>
+        <ul>
+            <li><strong>Verb 16</strong> = "Monitor routinely" — the DSKY updates
+                these values continuously without astronaut interaction</li>
+            <li><strong>Noun 68</strong> = "Landing data" — the three most critical
+                numbers for landing</li>
+        </ul>
+
+        <table>
+            <thead>
+                <tr><th>Register</th><th>Content</th><th>Units</th><th>Example</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>R1</strong></td>
+                    <td>Altitude above the surface</td>
+                    <td>Feet × 100</td>
+                    <td><code>+01500</code> = 15.00 ft</td>
+                </tr>
+                <tr>
+                    <td><strong>R2</strong></td>
+                    <td>Vertical velocity (altitude rate)</td>
+                    <td>Feet/s × 100</td>
+                    <td><code>−00312</code> = −3.12 ft/s (descending)</td>
+                </tr>
+                <tr>
+                    <td><strong>R3</strong></td>
+                    <td>Commanded descent rate (ROD setpoint)</td>
+                    <td>Feet/s × 100</td>
+                    <td><code>−00500</code> = −5.00 ft/s target</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-box">
+            <p>
+                <strong>Reading the DSKY:</strong> The <code>±XXXXX</code> format
+                shows values scaled by 100. To get the actual value in feet or ft/s,
+                divide the displayed number by 100.
+            </p>
+            <p>
+                <strong>Example:</strong> If R1 shows <code>+04921</code>, your altitude
+                is 4921 ÷ 100 = <strong>49.21 feet</strong> above the surface.
+            </p>
+            <p>
+                <strong>Why ×100?</strong> The AGC used fixed-point arithmetic with
+                no floating point. Scaling by 100 gave two decimal places of precision
+                using only integer registers.
+            </p>
+        </div>
+
+        <h3>PROG — Program Number</h3>
+        <p>
+            The <code>PROG</code> display shows the currently running program.
+            During landing, this shows <code>66</code> — Program 66, the
+            semi-automatic landing phase where the astronaut controls attitude
+            and descent rate while the AGC manages the throttle.
+        </p>
+
+        <h3>Status Lights</h3>
+        <table>
+            <thead>
+                <tr><th>Light</th><th>Meaning</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>COMP ACTY</td><td>Computer Activity — flickers when the AGC is processing</td></tr>
+                <tr><td>UPLINK</td><td>Receiving data from Mission Control (not used in sim)</td></tr>
+                <tr><td>TEMP</td><td>Temperature warning on AGC hardware</td></tr>
+                <tr><td>NO ATT</td><td>IMU attitude reference lost</td></tr>
+                <tr><td>GIMBAL</td><td>Gimbal lock warning — pitch near 90°</td></tr>
+                <tr><td>PROG</td><td>Program alarm — the AGC needs attention (e.g., the famous 1202 alarms)</td></tr>
+                <tr><td>TRACKER</td><td>Rendezvous tracking system active</td></tr>
+            </tbody>
+        </table>
+
+        <!-- ============================================================ -->
+        <h2>5. LANDING CRITERIA</h2>
+
+        <p>For a successful touchdown, your velocities must be within these limits
+           when the LM reaches the surface:</p>
+
+        <table>
+            <thead>
+                <tr><th>Parameter</th><th>Limit</th><th>Notes</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Vertical velocity</td>
+                    <td class="highlight">≤ 1.2 m/s (≈ 4 ft/s)</td>
+                    <td>LM gear designed for up to 7 ft/s; 4 ft/s provides margin</td>
+                </tr>
+                <tr>
+                    <td>Horizontal velocity</td>
+                    <td class="highlight">≤ 0.6 m/s (≈ 2 ft/s)</td>
+                    <td>Prevents tipping; gear absorbs some lateral motion</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-box">
+            <p>
+                <strong>Apollo 11 actual touchdown:</strong> ~0.9 m/s (3 ft/s) vertical.
+                Armstrong was nearly out of fuel — about 25 seconds of hover time remaining.
+            </p>
+            <p>
+                <strong>Failure modes:</strong>
+            </p>
+            <ul>
+                <li><span class="crit">CRASH</span> — Touched down too fast (exceeded velocity limits)</li>
+                <li><span class="warn">FUEL EXHAUSTED</span> — DPS propellant depleted before touchdown</li>
+                <li><span class="warn">TIMEOUT</span> — Exceeded 300 seconds (3000 DAP cycles) of flight time</li>
+            </ul>
+        </div>
+
+        <!-- ============================================================ -->
+        <h2>6. FLIGHT TIPS</h2>
+
+        <ol>
+            <li>
+                <strong>Start by reducing horizontal velocity.</strong>
+                You begin with ~5 m/s lateral motion. Use pitch
+                (<kbd>↑</kbd>/<kbd>↓</kbd>) to steer toward the landing pad.
+            </li>
+            <li>
+                <strong>Gradually slow your descent.</strong>
+                The initial −5 ft/s is good for high altitude. Tap <kbd>PgUp</kbd>
+                to reduce to −3 ft/s around 30m, then −1 ft/s below 10m.
+            </li>
+            <li>
+                <strong>Watch your fuel.</strong>
+                The DPS consumes ~14.8 kg/s at full thrust. You have about
+                8,200 kg of fuel — enough for ~9 minutes, but P66 starts
+                partway through powered descent.
+            </li>
+            <li>
+                <strong>Small corrections only.</strong>
+                The DAP responds every 0.1s. Gentle, brief key taps are better
+                than holding keys down.
+            </li>
+            <li>
+                <strong>Use the HUD and DSKY together.</strong>
+                The HUD (left) shows metric units in real-time.
+                The DSKY (right) shows the same data in Apollo flight units
+                (ft × 100). Cross-reference both.
+            </li>
+        </ol>
+
+        <hr style="border-color: #333; margin-top: 2rem;">
+        <p style="color: #555; font-size: 12px; text-align: center;">
+            Apollo Lander P66 Simulator — based on AGC source code from
+            <code>LUNAR_LANDING_GUIDANCE_EQUATIONS.agc</code> and
+            <code>SERVICER.agc</code>
+        </p>
+    </div>
+</body>
+</html>
