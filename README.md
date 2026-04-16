@@ -170,7 +170,6 @@ pytest tests/test_physics.py  # Physics tests only
 
 - [docs/project.md](docs/project.md) — Project overview and specifications
 - [docs/ground_truths.md](docs/ground_truths.md) — Key findings and design decisions
-- [docs/getting-started.md](docs/getting-started.md) — Detailed setup guide
 
 ## License
 
