@@ -81,6 +81,7 @@ def create_app(mode: str = "manual") -> Flask:
             "termination_reason": info.get("termination_reason", ""),
             "obs": obs.tolist() if obs is not None else [],
             "mode": app.config["mode"],
+            "terrain": info.get("terrain", []),
         }
 
     @app.route("/")

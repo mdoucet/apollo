@@ -109,3 +109,17 @@ Source verification: Fetched and analyzed the real Luminary099 AGC source files:
 - `LUNAR_LANDING_GUIDANCE_EQUATIONS.agc` — RODCOMP algorithm (pp. 816-819)
 - `CONTROLLED_CONSTANTS.agc` — THROTLAG, SCALEFAC, FDPS values
 - `ERASABLE_ASSIGNMENTS.agc` — TAUROD, LAG/TAU, RODSCALE, MINFORCE, MAXFORCE locations
+
+### 2026-04-15: Altitude Reference — CG vs Footpads
+
+The real AGC computed altitude as CG-to-surface (`HCALC = ABVAL(R1S) - /LAND/`) per SERVICER.agc. The LM footpads sit ~4.2 m below the CG. Our `compute_altitude()` returns footpad altitude = `r_norm - R_MOON - LM_CG_TO_FOOTPAD` so landing detection triggers when feet touch the surface, not the CG.
+
+### 2026-04-15: Terrain Roughness
+
+The real AGC assumed a perfectly spherical Moon (`HCALC = |R| - R_LUNAR`) and corrected the altitude estimate via Landing Radar feedback (Kalman-style position update in SERVICER.agc pp.884-885: `DELTAH = LR_altitude - HCALC`, weighted correction `WH*(1-H/HMAX)`).
+
+Our simulation adds terrain roughness directly:
+- **Terrain model**: Sum of 5 low-frequency sinusoids with random amplitude (0.3–1.5 m), wavelength (40–200 m), and phase. Landing pad (x=0) is pinned to zero elevation: `h(x) = Σ amp * [sin(2π*x/λ + φ) - sin(φ)]`.
+- **Altitude adjustment**: `terrain_altitude = compute_altitude(state) - terrain_height(x_horiz)`. Landing detection uses terrain-adjusted altitude.
+- **Terrain data flow**: Generated at `env.reset()` → stored as `_terrain_components` → passed via info dict → webapp sends to client → JavaScript `terrainHeight(x)` mirrors the server formula → canvas draws filled polygon surface.
+- **Impact**: Autopilot maintains 100% landing success (20/20). Terrain variation is small (a few meters) compared to typical approach altitude (150 m), consistent with Apollo mare landing sites.

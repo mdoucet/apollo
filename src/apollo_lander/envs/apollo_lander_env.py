@@ -114,6 +114,16 @@ class ApolloLanderEnv(gym.Env):
         self._step_count = 0
         self._guidance_step_counter = 0
 
+        # Terrain: random height profile generated at reset.
+        # Stored as sinusoidal components for compact representation.
+        # terrain_height(x) gives elevation offset relative to R_MOON.
+        self._terrain_components: list[tuple[float, float, float]] = []
+
+        # Terrain: random height profile generated at reset.
+        # Stored as sinusoidal components for compact representation.
+        # terrain_height(x) gives elevation offset relative to R_MOON.
+        self._terrain_components: list[tuple[float, float, float]] = []
+
     def reset(
         self,
         *,
@@ -160,7 +170,35 @@ class ApolloLanderEnv(gym.Env):
         self._step_count = 0
         self._guidance_step_counter = 0
 
+        # Generate random terrain profile (sum of sinusoids).
+        # Apollo landing sites were relatively flat mare regions, but
+        # with gentle undulations and small craters. We model this as
+        # low-frequency height variation of ±3 m, with the landing pad
+        # (x=0) pinned to zero elevation.
+        self._terrain_components = []
+        if options is None:
+            for _ in range(5):
+                amplitude = float(rng.uniform(0.3, 1.5))  # meters
+                wavelength = float(rng.uniform(40.0, 200.0))  # meters
+                phase = float(rng.uniform(0.0, 2.0 * np.pi))
+                self._terrain_components.append((amplitude, wavelength, phase))
+
         return self._get_obs(), self._get_info()
+
+    def _terrain_height(self, x: float) -> float:
+        """Compute terrain elevation at horizontal distance x from the pad.
+
+        Returns height offset in meters. The landing pad (x=0) is
+        always at zero elevation; terrain undulates around it.
+        """
+        h = 0.0
+        for amplitude, wavelength, phase in self._terrain_components:
+            # sin(phase) term ensures h(0)=0 by subtracting the pad offset
+            h += amplitude * (
+                np.sin(2.0 * np.pi * x / wavelength + phase)
+                - np.sin(phase)
+            )
+        return float(h)
 
     def step(
         self,
@@ -198,7 +236,12 @@ class ApolloLanderEnv(gym.Env):
         self._guidance_step_counter += 1
 
         # Check termination
-        altitude = compute_altitude(self._state)
+        altitude_cg = compute_altitude(self._state)
+        # Adjust for local terrain height at LM horizontal position
+        horiz_pos = float(self._state[0])  # x-position relative to pad
+        terrain_h = self._terrain_height(horiz_pos)
+        altitude = altitude_cg - terrain_h
+
         v_vertical, v_horizontal = compute_surface_velocity(self._state)
         fuel_remaining = self._state[6] - (LM_DRY_MASS + LM_ASCENT_MASS)
 
@@ -299,7 +342,11 @@ class ApolloLanderEnv(gym.Env):
 
     def _get_info(self) -> dict[str, Any]:
         """Build the info dictionary."""
-        altitude = compute_altitude(self._state)
+        altitude_cg = compute_altitude(self._state)
+        horiz_pos = float(self._state[0])
+        terrain_h = self._terrain_height(horiz_pos)
+        altitude = altitude_cg - terrain_h
+
         v_vertical, v_horizontal = compute_surface_velocity(self._state)
         fuel_remaining = self._state[6] - (LM_DRY_MASS + LM_ASCENT_MASS)
 
@@ -311,4 +358,5 @@ class ApolloLanderEnv(gym.Env):
             "mass": self._state[6],
             "target_descent_rate": self._guidance.target_descent_rate,
             "step": self._step_count,
+            "terrain": self._terrain_components,
         }

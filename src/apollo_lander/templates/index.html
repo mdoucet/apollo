@@ -214,6 +214,7 @@
     let running = false;
     let tickInterval = null;
     let gameMode = 'manual';  // set after first reset
+    let terrainComponents = [];  // [(amplitude, wavelength, phase), ...]
 
     // Keyboard state
     const keys = {};
@@ -313,18 +314,44 @@
             scale = BASE_SCALE * 5;
         }
 
-        // Lunar surface
-        const surfaceY = Math.floor(H * 0.85);
-        ctx.fillStyle = COL_SURFACE;
-        ctx.fillRect(0, surfaceY, W, H - surfaceY);
+        // Terrain height function (matches server-side _terrain_height)
+        // Returns elevation offset in meters at horizontal distance x from pad
+        function terrainHeight(x) {
+            let h = 0;
+            for (const [amp, wl, phase] of terrainComponents) {
+                h += amp * (Math.sin(2 * Math.PI * x / wl + phase) - Math.sin(phase));
+            }
+            return h;
+        }
 
-        // Surface detail lines
+        // Lunar surface with terrain roughness
+        const surfaceY = Math.floor(H * 0.85);
+
+        // Draw terrain as a filled polygon
+        ctx.fillStyle = COL_SURFACE;
+        ctx.beginPath();
+        ctx.moveTo(0, H);  // bottom-left corner
+        for (let px = 0; px <= W; px += 2) {
+            // Convert pixel x to world x (meters from pad center)
+            const worldX = (px - W / 2) / scale;
+            const th = terrainHeight(worldX);
+            const py = surfaceY - Math.floor(th * scale);
+            ctx.lineTo(px, py);
+        }
+        ctx.lineTo(W, H);  // bottom-right corner
+        ctx.closePath();
+        ctx.fill();
+
+        // Surface detail lines on the terrain contour
         ctx.strokeStyle = COL_SURFACE_DETAIL;
         ctx.lineWidth = 1;
-        for (let x = 0; x < W; x += 40) {
+        for (let px = 0; px < W; px += 40) {
+            const worldX = (px - W / 2) / scale;
+            const th = terrainHeight(worldX);
+            const py = surfaceY - Math.floor(th * scale);
             ctx.beginPath();
-            ctx.moveTo(x, surfaceY);
-            ctx.lineTo(x + 15, surfaceY + 5);
+            ctx.moveTo(px, py);
+            ctx.lineTo(px + 15, py + 5);
             ctx.stroke();
         }
 
@@ -344,8 +371,12 @@
         let lmX = W / 2 + horizOffset;
         const lmSize = 15;
         const legPixels = Math.floor(lmSize * 1.4);
-        let lmY = surfaceY - Math.floor(alt * scale) - legPixels;
-        lmY = Math.max(30, Math.min(lmY, surfaceY - legPixels));
+        // Compute terrain height under the LM for rendering
+        const lmWorldX = obs.length > 0 ? obs[0] * 0.1 : 0;
+        const terrainUnderLM = terrainHeight(lmWorldX);
+        const localSurfaceY = surfaceY - Math.floor(terrainUnderLM * scale);
+        let lmY = localSurfaceY - Math.floor(alt * scale) - legPixels;
+        lmY = Math.max(30, Math.min(lmY, localSurfaceY - legPixels));
         const pitch = obs.length > 7 ? obs[7] : 0;
 
         // Rotate helper: rotate point [px,py] around origin by pitch
@@ -573,7 +604,7 @@
             ctx.setLineDash([4, 4]);
             ctx.beginPath();
             ctx.moveTo(altLineBot[0], altLineBot[1]);
-            ctx.lineTo(lmX, surfaceY);
+            ctx.lineTo(lmX, localSurfaceY);
             ctx.stroke();
             ctx.setLineDash([]);
         }
@@ -809,6 +840,7 @@
         overlay.style.display = 'none';
         state = await apiReset();
         gameMode = state.mode || 'manual';
+        terrainComponents = state.terrain || [];
         render(state);
         running = true;
         if (gameMode === 'autopilot') {
