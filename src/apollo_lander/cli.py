@@ -35,6 +35,75 @@ def play() -> None:
 
 
 @main.command()
+@click.option("--episodes", type=int, default=0, help="Headless episodes (0 = launch browser)")
+def autopilot(episodes: int) -> None:
+    """Run the classical AGC autopilot (no RL).
+
+    With no options, launches the browser to watch the autopilot fly.
+    With --episodes N, runs N headless episodes and prints statistics.
+    """
+    from apollo_lander.autopilot import AGCAutopilot
+
+    if episodes > 0:
+        # Headless evaluation
+        import apollo_lander.envs  # noqa: F401
+        import gymnasium as gym
+
+        env = gym.make("ApolloLander-v0")
+        agent = AGCAutopilot()
+
+        successes = 0
+        total_rewards: list[float] = []
+        final_velocities: list[tuple[float, float]] = []
+
+        click.echo(f"Running AGC autopilot for {episodes} episodes...")
+
+        for ep in range(episodes):
+            obs, info = env.reset()
+            agent.reset()
+            done = False
+            ep_reward = 0.0
+
+            while not done:
+                action, _ = agent.predict(obs)
+                obs, reward, terminated, truncated, info = env.step(action)
+                ep_reward += reward
+                done = terminated or truncated
+
+            success = info.get("landing_success", False)
+            if success:
+                successes += 1
+            total_rewards.append(ep_reward)
+            final_velocities.append(
+                (info["vertical_velocity"], info["horizontal_velocity"])
+            )
+
+            status = "LANDED" if success else "CRASHED"
+            reason = info.get("termination_reason", "")
+            click.echo(
+                f"  Episode {ep + 1:3d}: {status:7s} ({reason:7s}) | "
+                f"Reward: {ep_reward:8.1f} | "
+                f"Vv: {info['vertical_velocity']:6.2f} | "
+                f"Vh: {info['horizontal_velocity']:6.2f} | "
+                f"Fuel: {info['fuel_remaining']:7.1f}"
+            )
+
+        import numpy as np
+
+        click.echo(f"\n{'='*55}")
+        click.echo(f"AGC Autopilot — {successes}/{episodes} landings ({100*successes/episodes:.1f}%)")
+        click.echo(f"Avg reward:   {np.mean(total_rewards):.1f}")
+        click.echo(f"Avg |Vv|:     {np.mean([abs(v) for v, _ in final_velocities]):.2f} m/s")
+        click.echo(f"Avg Vh:       {np.mean([h for _, h in final_velocities]):.2f} m/s")
+        env.close()
+    else:
+        # Launch browser mode
+        from apollo_lander.manual import play as run_play
+
+        run_play(mode="autopilot")
+
+
+@main.command()
 @click.option("--algo", type=click.Choice(["ppo", "sac"]), default="ppo", help="RL algorithm")
 @click.option("--timesteps", type=int, default=100_000, help="Training timesteps")
 @click.option("--output", default="models/apollo_lander", help="Model save path")

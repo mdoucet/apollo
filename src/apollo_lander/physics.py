@@ -14,7 +14,7 @@ instantaneous spacecraft mass including remaining fuel.
 
 import numpy as np
 
-from apollo_lander.constants import DPS_ISP, G0, MU_MOON, R_MOON
+from apollo_lander.constants import DPS_ISP, G0, LM_CG_TO_FOOTPAD, MU_MOON, R_MOON
 
 
 def lunar_equations_of_motion(
@@ -92,16 +92,20 @@ def rk4_step(
 
 def compute_altitude(state: np.ndarray) -> float:
     """
-    Compute altitude above the lunar surface.
+    Compute altitude of the landing gear footpads above the lunar surface.
+
+    The physics state vector tracks the LM center of gravity (CG).
+    This function subtracts the CG-to-footpad offset so that
+    altitude = 0 corresponds to the footpads touching the surface.
 
     Args:
         state: 7D state vector.
 
     Returns:
-        Altitude in meters (distance from surface, not center).
+        Footpad altitude in meters (0 = footpads on the surface).
     """
     r_norm = np.linalg.norm(state[0:3])
-    return float(r_norm - R_MOON)
+    return float(r_norm - R_MOON - LM_CG_TO_FOOTPAD)
 
 
 def compute_surface_velocity(state: np.ndarray) -> tuple[float, float]:

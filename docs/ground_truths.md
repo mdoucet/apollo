@@ -54,3 +54,58 @@ The simulation ends in one of four outcomes:
 - **Timeout**: Exceeded `max_steps` (3000 steps = 300s at 10 Hz).
 
 Previously all failure modes showed "ABORT". The UI now distinguishes these cases and explains which velocity limits were exceeded on crash. See `apollo_lander_env.py` `step()` for the `termination_reason` field.
+
+### 2026-04-15: RHC-to-Attitude Coordinate Mapping
+
+The RHC input flows through the guidance and environment as:
+- `rhc[0]` → `guidance.target_attitude[0]` → `env._attitude[0]` = **roll** (X-axis rotation, produces Y-thrust component)
+- `rhc[1]` → `guidance.target_attitude[1]` → `env._attitude[1]` = **pitch** (Y-axis rotation, produces X-thrust component)
+- `rhc[2]` → `guidance.target_attitude[2]` → `env._attitude[2]` = **yaw**
+
+The `body_to_world` transform uses ZYX Euler order: `Rotation.from_euler("ZYX", [yaw, pitch, roll])`.
+
+**Implication**: To cancel horizontal X-velocity, command `rhc[1]` (physical pitch). To cancel Y-velocity, command `rhc[0]` (physical roll). The browser UI key labels ("pitch forward"/"roll left") are functionally swapped relative to the physics.
+
+### 2026-04-15: AGC Autopilot Controller
+
+`autopilot.py` implements a classical-style P66 autopilot as an alternative to the RL agent. Key design:
+- PD controller for horizontal velocity nulling (kp=0.04, kd=0.3; tighter below 20m)
+- ROD switch to follow a descent-rate schedule: −5/−3/−2/−1 ft/s by altitude band
+- ROD cooldown of 10 ticks (1s) prevents switch bouncing
+- MAX_TILT = 0.25 rad (~14°) limits pitch/roll excursion
+- Achieves 100% landing success rate across 20-episode tests
+- `predict(obs)` returns `(action_dict, None)` matching SB3's interface
+
+### 2026-04-15: Faithful AGC RODCOMP Throttle Controller
+
+The `guidance.py` throttle controller was rewritten to faithfully implement the real AGC P66 RODCOMP algorithm from `LUNAR_LANDING_GUIDANCE_EQUATIONS.agc` (pp. 816-819). Key changes:
+
+**Before (non-authentic):** PI controller with kp=0.5, ki=0.1, anti-windup ±10.
+
+**After (faithful to AGC source code):**
+- `a_cmd = (VDGVERT - HDOTDISP) / TAUROD`
+- **Proportional only** — the real AGC had NO integral term. P66 was intentionally simple.
+- **TAUROD = 2.0s** — time constant (pad-loaded erasable, `ERASABLE_ASSIGNMENTS.agc` p.122)
+- **Gravity compensation** — added separately: `total_accel = a_cmd + gravity`
+- **Throttle lag compensation** — lead-lag filter: `FC += LAG/TAU * (FC - FCOLD)` where LAG/TAU = 0.1 (THROTLAG/TAUROD = 0.2s/2.0s)
+- **FCOLD** — tracks previous commanded force (AGC erasable for lag filter state)
+
+The proportional gain 1/TAUROD = 0.5 happens to match our previous kp=0.5, so performance is unchanged (20/20 landings, 100% success).
+
+New constants added to `constants.py`:
+- `TAUROD = 2.0` — ROD time constant (pad-loaded, `ERASABLE_ASSIGNMENTS.agc` p.122)
+- `LAG_OVER_TAU = 0.1` — throttle lag ratio (pad-loaded, `ERASABLE_ASSIGNMENTS.agc` p.122)
+- `THROTLAG = 0.2` — DPS actuator lag (`CONTROLLED_CONSTANTS.agc` p.40: `THROTLAG DEC +20`)
+
+### 2026-04-15: AGC vs Crew Procedures Separation
+
+The autopilot clearly separates what the **AGC computer** did from what the **astronaut crew** did:
+
+**AGC RODCOMP (automated by computer):** Throttle control via the proportional law above. The autopilot sends ROD clicks → guidance.py processes them exactly as the real RODCOMP did (accumulate in VDGVERT, compute throttle). The AGC also computed VHORIZ for display but did NOT control it.
+
+**Crew Procedures (simulated CDR):** Horizontal velocity nulling was 100% manual by the Commander using the RHC and LPDT cross-pointer display. Our autopilot simulates this with a PD controller — this is clearly labeled as a crew procedure approximation, not AGC code.
+
+Source verification: Fetched and analyzed the real Luminary099 AGC source files:
+- `LUNAR_LANDING_GUIDANCE_EQUATIONS.agc` — RODCOMP algorithm (pp. 816-819)
+- `CONTROLLED_CONSTANTS.agc` — THROTLAG, SCALEFAC, FDPS values
+- `ERASABLE_ASSIGNMENTS.agc` — TAUROD, LAG/TAU, RODSCALE, MINFORCE, MAXFORCE locations

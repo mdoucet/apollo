@@ -11,7 +11,7 @@ import webbrowser
 from apollo_lander.webapp import create_app
 
 
-def play(host: str = "127.0.0.1", port: int = 5050) -> None:
+def play(host: str = "127.0.0.1", port: int = 5050, mode: str = "manual") -> None:
     """
     Run the manual play mode via web browser.
 
@@ -27,10 +27,11 @@ def play(host: str = "127.0.0.1", port: int = 5050) -> None:
     Args:
         host: Hostname to bind to.
         port: Port number.
+        mode: Play mode — "manual" for keyboard, "autopilot" for AGC.
     """
-    app = create_app()
+    app = create_app(mode=mode)
     url = f"http://{host}:{port}"
-    print(f"Starting Apollo Lander at {url}")
+    print(f"Starting Apollo Lander at {url} (mode: {mode})")
     print("Press Ctrl+C to stop the server.")
     webbrowser.open(url)
     app.run(host=host, port=port)

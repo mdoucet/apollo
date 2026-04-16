@@ -18,6 +18,7 @@ from gymnasium import spaces
 from apollo_lander.constants import (
     DAP_DT,
     GUIDANCE_DT,
+    LM_CG_TO_FOOTPAD,
     LM_DRY_MASS,
     LM_ASCENT_MASS,
     LM_FUEL_MASS,
@@ -129,8 +130,10 @@ class ApolloLanderEnv(gym.Env):
 
         # Position: directly above landing site at P66 altitude
         # In MCI frame, place LM above the surface along +Z axis
+        # P66_INITIAL_ALTITUDE is footpad altitude; CG is higher by the
+        # CG-to-footpad offset so the physics state is consistent.
         altitude = P66_INITIAL_ALTITUDE
-        r_surface = R_MOON + altitude
+        r_surface = R_MOON + altitude + LM_CG_TO_FOOTPAD
 
         # Small random perturbation for training variety
         rng = self.np_random

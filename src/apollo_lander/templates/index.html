@@ -213,6 +213,7 @@
     let state = null;
     let running = false;
     let tickInterval = null;
+    let gameMode = 'manual';  // set after first reset
 
     // Keyboard state
     const keys = {};
@@ -246,6 +247,11 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ rhc, rod })
         });
+        return await resp.json();
+    }
+
+    async function apiAutopilotStep() {
+        const resp = await fetch('/api/autopilot-step', { method: 'POST' });
         return await resp.json();
     }
 
@@ -331,12 +337,15 @@
         ctx.fillText('▼ PAD ▼', W / 2, surfaceY + 15);
 
         // LM position on screen
+        // Altitude is referenced to footpads (alt=0 → feet on ground).
+        // The LM sprite's feet are drawn at lmY + lmSize*1.4 below center,
+        // so we offset lmY upward by that amount so feet sit on the surface.
         const horizOffset = obs.length > 0 ? obs[0] * scale * 0.1 : 0;
         let lmX = W / 2 + horizOffset;
-        let lmY = surfaceY - Math.floor(alt * scale);
-        lmY = Math.max(30, Math.min(lmY, surfaceY - 5));
-
         const lmSize = 15;
+        const legPixels = Math.floor(lmSize * 1.4);
+        let lmY = surfaceY - Math.floor(alt * scale) - legPixels;
+        lmY = Math.max(30, Math.min(lmY, surfaceY - legPixels));
         const pitch = obs.length > 7 ? obs[7] : 0;
 
         // Rotate helper: rotate point [px,py] around origin by pitch
@@ -799,22 +808,31 @@
     async function resetGame() {
         overlay.style.display = 'none';
         state = await apiReset();
+        gameMode = state.mode || 'manual';
         render(state);
         running = true;
-        statusBar.textContent = 'P66 ACTIVE — Fly the Lunar Module';
+        if (gameMode === 'autopilot') {
+            statusBar.textContent = 'P66 AGC AUTOPILOT — Observing';
+        } else {
+            statusBar.textContent = 'P66 ACTIVE — Fly the Lunar Module';
+        }
     }
 
     async function tick() {
         if (!running || !state || state.game_over) return;
 
-        const action = readAction();
-        state = await apiStep(action.rhc, action.rod);
+        if (gameMode === 'autopilot') {
+            state = await apiAutopilotStep();
+        } else {
+            const action = readAction();
+            state = await apiStep(action.rhc, action.rod);
+        }
         render(state);
 
         // Update status bar
-        const step = state.obs.length > 0 ? '' : '';
+        const modeLabel = gameMode === 'autopilot' ? 'AGC' : 'P66';
         statusBar.textContent =
-            `ALT ${state.altitude.toFixed(0)}m | ` +
+            `${modeLabel} | ALT ${state.altitude.toFixed(0)}m | ` +
             `Vv ${state.vertical_velocity.toFixed(1)}m/s | ` +
             `Fuel ${state.fuel_remaining.toFixed(0)}kg | ` +
             `Reward ${state.total_reward.toFixed(0)}`;

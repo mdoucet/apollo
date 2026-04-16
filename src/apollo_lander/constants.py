@@ -195,6 +195,64 @@ AGC: RODSCAL1 — loaded into erasable at P66 init, converts raw
      1 click = 1 ft/s = 0.3048 m/s (standard Apollo ROD increment).
 """
 
+TAUROD = 2.0
+"""Time constant for P66 Rate of Descent control (s).
+
+AGC: TAUROD stored in erasable memory (EBANK-5), pad-loaded per mission.
+     ERASABLE_ASSIGNMENTS.agc p.122:
+       TAUROD  EQUALS  RODSCALE +1  # I(2) TIME CONSTANT FOR R.O.D.
+     Used in RODCOMP proportional law:
+       a_cmd = (VDGVERT - HDOTDISP) / TAUROD
+     Source: LUNAR_LANDING_GUIDANCE_EQUATIONS.agc pp.816-819
+
+     Not in fixed ROM (pad-loaded erasable). Value ~2 seconds from
+     Apollo mission documentation and training procedures.
+"""
+
+LAG_OVER_TAU = 0.1
+"""Throttle lag compensation ratio (dimensionless).
+
+AGC: LAG/TAU stored in erasable memory (EBANK-5), pad-loaded per mission.
+     ERASABLE_ASSIGNMENTS.agc p.122:
+       LAG/TAU  EQUALS  TAUROD +2  # I(2) LAG TIME DIVIDED BY TAUROD (P66)
+     = THROTLAG / TAUROD = 0.2s / 2.0s = 0.1
+     Used in RODCOMP for lead-lag throttle compensation:
+       FC += LAG/TAU * (FC - FCOLD)
+     Source: LUNAR_LANDING_GUIDANCE_EQUATIONS.agc pp.816-819
+"""
+
+THROTLAG = 0.2
+"""DPS throttle actuator time constant (s).
+
+AGC: THROTLAG  DEC +20                   [CONTROLLED_CONSTANTS.agc p.40]
+     = 20 centiseconds = 0.2 seconds
+     Represents the delay between commanding and achieving a thrust level.
+"""
+
+LM_CG_TO_FOOTPAD = 4.2
+"""Distance from LM center of gravity to landing gear footpads (m).
+
+The LM physics state tracks the CG position, but the altitude displayed
+to the crew (and used for landing detection) should reference the
+footpads touching the surface.
+
+LM dimensions (Apollo 11 LM-5):
+    Footpad to descent stage bottom:  ~1.55 m  (landing gear deployed)
+    Descent stage height:             ~1.68 m  (structural box)
+    Descent/ascent interface:         ~3.23 m  above footpads
+    Ascent stage height:              ~3.76 m
+
+    CG at landing mass (~7000 kg, fuel nearly depleted):
+    Descent stage CG ≈ 2.3 m, Ascent stage CG ≈ 5.1 m
+    Combined CG ≈ (2034×2.3 + 4670×5.1) / 6704 ≈ 4.2 m above footpads
+
+Note: The real AGC's HCALC was CG altitude (SERVICER.agc p.876:
+``HCALC = ABVAL(R1S) - /LAND/``). The crew used contact probes
+(67 in / 1.7 m below footpads) for the actual engine-shutdown cue.
+Our simulation references altitude to the footpads for a more
+intuitive display: altitude = 0 means the feet are on the ground.
+"""
+
 MAX_ROTATION_RATE = 0.3490659  # radians, ~20 deg/s
 """Maximum rotation rate commandable via the Rotational Hand Controller (rad/s).
 

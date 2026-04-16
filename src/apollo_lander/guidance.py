@@ -6,6 +6,18 @@ of lunar descent. In P66, the astronaut controlled attitude via the
 Rotational Hand Controller (RHC) and adjusted the rate of descent
 via the ROD switch, while the AGC handled throttle and attitude hold.
 
+The throttle controller faithfully implements the real AGC RODCOMP
+algorithm from LUNAR_LANDING_GUIDANCE_EQUATIONS.agc (pp. 816-819):
+    a_cmd = (VDGVERT - HDOTDISP) / TAUROD
+where:
+    VDGVERT  = desired vertical velocity (set by ROD switch clicks)
+    HDOTDISP = measured vertical velocity
+    TAUROD   = time constant (~2 seconds, pad-loaded erasable)
+
+The real AGC used a simple proportional control law with gravity
+compensation and a lead-lag term for throttle actuator lag. There
+was NO integral term — P66 was intentionally simple and stable.
+
 This module translates abstract actions (RHC deflection, ROD clicks)
 into physical thrust vectors for the RK4 physics engine.
 """
@@ -13,6 +25,7 @@ into physical thrust vectors for the RK4 physics engine.
 import numpy as np
 
 from apollo_lander.constants import (
+    LAG_OVER_TAU,
     MAX_ROTATION_RATE,
     MAX_THRUST,
     MIN_THRUST,
@@ -20,6 +33,7 @@ from apollo_lander.constants import (
     P66_INITIAL_DESCENT_RATE,
     R_MOON,
     ROD_INCREMENT,
+    TAUROD,
 )
 from apollo_lander.transforms import body_to_world
 
@@ -34,8 +48,14 @@ class ApolloP66Guidance:
     - The AGC handles throttle to maintain the commanded descent rate
     - The DAP holds attitude when no input is given
 
+    The throttle controller uses the real RODCOMP proportional law
+    from the AGC source (not a PI controller):
+        a_cmd = (VDGVERT - HDOTDISP) / TAUROD
+    with gravity compensation and throttle lag lead-lag filter.
+
     Attributes:
         target_descent_rate: Current commanded descent rate (m/s, negative=down).
+            Corresponds to AGC erasable VDGVERT.
         target_attitude: Current targeted attitude [roll, pitch, yaw] (rad).
         max_rate: Maximum rotation rate from full stick deflection (rad/s).
     """
@@ -45,14 +65,13 @@ class ApolloP66Guidance:
         self.target_attitude = np.array([0.0, 0.0, 0.0])
         self.max_rate = MAX_ROTATION_RATE
 
-        # PD attitude controller gains
+        # PD attitude controller gains (DAP, separate from RODCOMP)
         self._kp_attitude = 2.0
         self._kd_attitude = 1.5
 
-        # PI throttle controller gains
-        self._kp_throttle = 0.5
-        self._ki_throttle = 0.1
-        self._throttle_error_integral = 0.0
+        # RODCOMP state: previous commanded force for lag compensation
+        # AGC: FCOLD — previous throttle command (LUNAR_LANDING_GUIDANCE_EQUATIONS.agc)
+        self._fcold = 0.0
 
         # Previous attitude for derivative computation
         self._prev_attitude_error = np.zeros(3)
@@ -61,7 +80,7 @@ class ApolloP66Guidance:
         """Reset controller state for a new episode."""
         self.target_descent_rate = P66_INITIAL_DESCENT_RATE
         self.target_attitude = np.array([0.0, 0.0, 0.0])
-        self._throttle_error_integral = 0.0
+        self._fcold = 0.0
         self._prev_attitude_error = np.zeros(3)
 
     def process_controls(
@@ -107,7 +126,9 @@ class ApolloP66Guidance:
         # For now, attitude tracks the target directly
         # (the env will apply the effective attitude from the target).
 
-        # 4. Throttle control: maintain target descent rate
+        # 4. Throttle control: AGC RODCOMP proportional law
+        # Real AGC source: LUNAR_LANDING_GUIDANCE_EQUATIONS.agc pp.816-819
+        # Algorithm: a_cmd = (VDGVERT - HDOTDISP) / TAUROD
         r_vec = state[0:3]
         v_vec = state[3:6]
         mass = state[6]
@@ -115,31 +136,30 @@ class ApolloP66Guidance:
         r_norm = np.linalg.norm(r_vec)
         r_hat = r_vec / max(r_norm, 1.0)
 
-        # Current vertical (radial) velocity
+        # Current vertical (radial) velocity = HDOTDISP
         current_vz = float(np.dot(v_vec, r_hat))
 
-        # Gravity force magnitude along radial direction
+        # Gravity acceleration along radial direction
         gravity_accel = MU_MOON / max(r_norm**2, R_MOON**2)
-        gravity_force = mass * gravity_accel
 
-        # Velocity error for throttle PI controller
-        vz_error = self.target_descent_rate - current_vz
-        self._throttle_error_integral += vz_error * dt
+        # RODCOMP: commanded acceleration
+        # a_cmd = (VDGVERT - HDOTDISP) / TAUROD
+        a_cmd = (self.target_descent_rate - current_vz) / TAUROD
 
-        # Clamp integral to prevent windup
-        self._throttle_error_integral = np.clip(
-            self._throttle_error_integral, -10.0, 10.0
-        )
+        # Total commanded acceleration: RODCOMP + gravity compensation
+        total_accel = a_cmd + gravity_accel
 
-        # Commanded thrust: gravity compensation + PI correction
-        correction = (
-            self._kp_throttle * vz_error * mass
-            + self._ki_throttle * self._throttle_error_integral * mass
-        )
-        commanded_thrust = gravity_force + correction
+        # Convert acceleration to force
+        commanded_force = total_accel * mass
 
-        # Clip to engine operating range
-        commanded_thrust = float(np.clip(commanded_thrust, MIN_THRUST, MAX_THRUST))
+        # Throttle lag compensation: FC += LAG/TAU * (FC - FCOLD)
+        # This lead-lag filter compensates for the DPS throttle actuator
+        # time constant (THROTLAG = 0.2s). Source: AGC RODCOMP code.
+        commanded_force += LAG_OVER_TAU * (commanded_force - self._fcold)
+        self._fcold = commanded_force
+
+        # Clip to engine operating range (MINFORCE..MAXFORCE)
+        commanded_thrust = float(np.clip(commanded_force, MIN_THRUST, MAX_THRUST))
 
         # 5. Resolve thrust into inertial frame using current attitude
         thrust_vector_world = body_to_world(commanded_thrust, attitude)

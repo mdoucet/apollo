@@ -5,7 +5,7 @@ Tests for the physics engine (RK4 integrator and equations of motion).
 import numpy as np
 import pytest
 
-from apollo_lander.constants import LM_TOTAL_MASS, MU_MOON, R_MOON
+from apollo_lander.constants import LM_CG_TO_FOOTPAD, LM_TOTAL_MASS, MU_MOON, R_MOON
 from apollo_lander.physics import (
     compute_altitude,
     compute_surface_velocity,
@@ -126,17 +126,19 @@ class TestAltitudeAndVelocity:
     """Tests for helper functions."""
 
     def test_compute_altitude(self):
-        """Altitude is distance above surface."""
+        """Altitude is footpad distance above surface."""
         alt = 500.0
-        state = np.array([0.0, 0.0, R_MOON + alt, 0, 0, 0, LM_TOTAL_MASS])
+        # CG is at alt + CG_TO_FOOTPAD above surface
+        state = np.array([0.0, 0.0, R_MOON + alt + LM_CG_TO_FOOTPAD, 0, 0, 0, LM_TOTAL_MASS])
 
         assert compute_altitude(state) == pytest.approx(alt)
 
     def test_compute_altitude_at_surface(self):
-        """Altitude at surface should be zero."""
-        state = np.array([0.0, 0.0, R_MOON, 0, 0, 0, LM_TOTAL_MASS])
+        """Altitude should be zero when footpads touch the surface."""
+        # CG is at CG_TO_FOOTPAD height when footpads are on ground
+        state = np.array([0.0, 0.0, R_MOON + LM_CG_TO_FOOTPAD, 0, 0, 0, LM_TOTAL_MASS])
 
-        assert compute_altitude(state) == pytest.approx(0.0)
+        assert compute_altitude(state) == pytest.approx(0.0, abs=1e-6)
 
     def test_surface_velocity_decomposition(self):
         """Radial and tangential velocity components."""

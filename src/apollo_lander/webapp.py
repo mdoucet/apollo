@@ -21,9 +21,13 @@ import apollo_lander.envs  # noqa: F401 — triggers env registration
 import gymnasium as gym
 
 
-def create_app() -> Flask:
+def create_app(mode: str = "manual") -> Flask:
     """
     Create and configure the Flask application.
+
+    Args:
+        mode: Play mode — "manual" for keyboard control,
+              "autopilot" for classical AGC autopilot.
 
     Returns:
         Configured Flask app instance.
@@ -37,11 +41,18 @@ def create_app() -> Flask:
     app.config["total_reward"] = 0.0
     app.config["game_over"] = False
     app.config["landing_success"] = False
+    app.config["mode"] = mode
+    app.config["autopilot"] = None
 
     def _reset_game() -> None:
         """Initialize or reset the Gymnasium environment."""
         if app.config["env"] is None:
             app.config["env"] = gym.make("ApolloLander-v0")
+
+        if app.config["mode"] == "autopilot" and app.config["autopilot"] is None:
+            from apollo_lander.autopilot import AGCAutopilot
+
+            app.config["autopilot"] = AGCAutopilot()
 
         obs, info = app.config["env"].reset()
         app.config["obs"] = obs
@@ -49,6 +60,9 @@ def create_app() -> Flask:
         app.config["total_reward"] = 0.0
         app.config["game_over"] = False
         app.config["landing_success"] = False
+
+        if app.config["autopilot"] is not None:
+            app.config["autopilot"].reset()
 
     def _make_state() -> dict[str, Any]:
         """Build a JSON-serializable state dict from the current env."""
@@ -66,6 +80,7 @@ def create_app() -> Flask:
             "landing_success": app.config["landing_success"],
             "termination_reason": info.get("termination_reason", ""),
             "obs": obs.tolist() if obs is not None else [],
+            "mode": app.config["mode"],
         }
 
     @app.route("/")
@@ -114,6 +129,34 @@ def create_app() -> Flask:
         )
 
         action = {"rhc": rhc_array, "rod": int(rod)}
+        env = app.config["env"]
+        obs, reward, terminated, truncated, info = env.step(action)
+
+        app.config["obs"] = obs
+        app.config["info"] = info
+        app.config["total_reward"] += reward
+
+        if terminated or truncated:
+            app.config["game_over"] = True
+            app.config["landing_success"] = info.get(
+                "landing_success", False
+            )
+
+        return jsonify(_make_state())
+
+    @app.route("/api/autopilot-step", methods=["POST"])
+    def autopilot_step():
+        """Step the simulation using the AGC autopilot controller."""
+        if app.config["game_over"]:
+            return jsonify(_make_state())
+
+        agent = app.config["autopilot"]
+        if agent is None:
+            return jsonify({"error": "Autopilot not enabled"}), 400
+
+        obs = app.config["obs"]
+        action, _ = agent.predict(obs)
+
         env = app.config["env"]
         obs, reward, terminated, truncated, info = env.step(action)
 

@@ -37,7 +37,7 @@ pip install -e ".[all]"
 apollo play
 ```
 
-This opens the simulation in your web browser at `http://127.0.0.1:5000`.
+This opens the simulation in your web browser at `http://127.0.0.1:5050`.
 
 **Controls:**
 | Key | Action |
@@ -47,6 +47,20 @@ This opens the simulation in your web browser at `http://127.0.0.1:5000`.
 | Page Up | Decrease sink rate (ROD up, −1 ft/s) |
 | Page Down | Increase sink rate (ROD down, +1 ft/s) |
 | Escape | Quit |
+
+### Watch the AGC autopilot land
+
+```bash
+apollo autopilot
+```
+
+This runs a classical (non-RL) autopilot that replicates the real Apollo P66 landing procedure. The throttle is controlled by the AGC's RODCOMP algorithm (faithfully ported from the [Luminary099](https://github.com/chrislgarry/Apollo-11/blob/master/Luminary099/LUNAR_LANDING_GUIDANCE_EQUATIONS.agc) source code), while horizontal velocity is nulled by a simulated Commander on the RHC — just as in the real mission.
+
+Run headless evaluation:
+
+```bash
+apollo autopilot --episodes 20
+```
 
 ### Train an RL agent
 
@@ -108,6 +122,7 @@ src/apollo_lander/
 ├── renderer.py           # Backward-compat entry point (launches webapp)
 ├── templates/
 │   └── index.html        # HTML5 Canvas game with DSKY panel
+├── autopilot.py          # Classical AGC autopilot (non-RL P66 controller)
 ├── manual.py             # Manual play mode (launches Flask server)
 ├── train.py              # RL training with PPO/SAC
 ├── evaluate.py           # Trained model evaluation
@@ -137,7 +152,7 @@ This simulation replicates exactly that control scheme.
 ## Running Tests
 
 ```bash
-pytest                    # Run all 29 tests
+pytest                    # Run all 35 tests
 pytest -v                 # Verbose output
 pytest tests/test_physics.py  # Physics tests only
 ```
