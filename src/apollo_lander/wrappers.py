@@ -25,9 +25,7 @@ class FlatActionWrapper(gym.ActionWrapper):
 
     def __init__(self, env: gym.Env) -> None:
         super().__init__(env)
-        self.action_space = spaces.Box(
-            low=-1.0, high=1.0, shape=(4,), dtype=np.float32
-        )
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(4,), dtype=np.float32)
 
     def action(self, action: np.ndarray) -> dict[str, Any]:
         """Convert flat array to Dict action."""

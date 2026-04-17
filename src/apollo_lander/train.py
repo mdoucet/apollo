@@ -45,7 +45,12 @@ def make_training_env() -> gym.Env:
     default="models/apollo_lander",
     help="Path to save the trained model",
 )
-@click.option("--tensorboard", type=click.Path(), default="logs/", help="Tensorboard log directory")
+@click.option(
+    "--tensorboard",
+    type=click.Path(),
+    default="logs/",
+    help="Tensorboard log directory",
+)
 def train(algo: str, timesteps: int, output: str, tensorboard: str) -> None:
     """Train an RL agent to land the Apollo Lunar Module."""
     try:

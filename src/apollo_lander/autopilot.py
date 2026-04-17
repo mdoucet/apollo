@@ -40,7 +40,6 @@ import numpy as np
 from apollo_lander.constants import (
     LM_CG_TO_FOOTPAD,
     MAX_LANDING_HORIZONTAL_VEL,
-    MAX_LANDING_VERTICAL_VEL,
     ROD_INCREMENT,
 )
 
@@ -79,10 +78,10 @@ class AGCAutopilot:
     # Apollo crews typically used: −5 at high alt, −3 mid, −1 low
     # Minimum −1 ft/s prevents the LM from hovering indefinitely.
     DESCENT_SCHEDULE = [
-        (100.0, -5.0),   # above 100 m: −5 ft/s
-        (50.0, -3.0),    # 50–100 m: −3 ft/s
-        (15.0, -2.0),    # 15–50 m: −2 ft/s
-        (0.0, -1.0),     # below 15 m: −1 ft/s (final approach)
+        (100.0, -5.0),  # above 100 m: −5 ft/s
+        (50.0, -3.0),  # 50–100 m: −3 ft/s
+        (15.0, -2.0),  # 15–50 m: −2 ft/s
+        (0.0, -1.0),  # below 15 m: −1 ft/s (final approach)
     ]
 
     def __init__(self) -> None:
@@ -159,8 +158,8 @@ class AGCAutopilot:
         dv_horiz = v_horiz_vec - self._prev_v_horiz_vec
         self._prev_v_horiz_vec = v_horiz_vec.copy()
 
-        kp = 0.04   # proportional gain (gentle — avoid overshoot)
-        kd = 0.3    # derivative gain (strong damping)
+        kp = 0.04  # proportional gain (gentle — avoid overshoot)
+        kd = 0.3  # derivative gain (strong damping)
 
         # Below 20m, tighten control to prevent marginal failures
         if altitude < 20.0:
@@ -179,7 +178,7 @@ class AGCAutopilot:
             # Y-component: control via rhc[0] (roll), opposite sign
             v_hy = float(v_horiz_vec[1])
             dv_hy = float(dv_horiz[1])
-            cmd_y = (kp * v_hy + kd * dv_hy)
+            cmd_y = kp * v_hy + kd * dv_hy
             rhc[0] = float(np.clip(cmd_y, -self.MAX_TILT, self.MAX_TILT))
         else:
             # Horizontal nulled — damp attitude back to vertical

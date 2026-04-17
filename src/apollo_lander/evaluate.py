@@ -27,7 +27,9 @@ from apollo_lander.wrappers import FlatActionWrapper
     default="models/apollo_lander",
     help="Path to saved model (without extension)",
 )
-@click.option("--algo", type=click.Choice(["ppo", "sac"]), default="ppo", help="Algorithm used")
+@click.option(
+    "--algo", type=click.Choice(["ppo", "sac"]), default="ppo", help="Algorithm used"
+)
 @click.option("--episodes", type=int, default=20, help="Number of evaluation episodes")
 @click.option("--render/--no-render", default=False, help="Render the agent visually")
 def evaluate(model: str, algo: str, episodes: int, render: bool) -> None:
@@ -36,8 +38,7 @@ def evaluate(model: str, algo: str, episodes: int, render: bool) -> None:
         from stable_baselines3 import PPO, SAC
     except ImportError:
         click.echo(
-            "stable-baselines3 is required. "
-            "Install with: pip install apollo-lander[rl]"
+            "stable-baselines3 is required. Install with: pip install apollo-lander[rl]"
         )
         raise SystemExit(1)
 
@@ -92,11 +93,17 @@ def evaluate(model: str, algo: str, episodes: int, render: bool) -> None:
             f"Fuel: {info['fuel_remaining']:7.1f}"
         )
 
-    click.echo(f"\n{'='*50}")
-    click.echo(f"Success rate: {successes}/{episodes} ({100*successes/episodes:.1f}%)")
+    click.echo(f"\n{'=' * 50}")
+    click.echo(
+        f"Success rate: {successes}/{episodes} ({100 * successes / episodes:.1f}%)"
+    )
     click.echo(f"Avg reward:   {np.mean(total_rewards):.1f}")
-    click.echo(f"Avg |Vv|:     {np.mean([abs(v) for v, _ in final_velocities]):.2f} m/s")
-    click.echo(f"Avg |Vh|:     {np.mean([abs(h) for _, h in final_velocities]):.2f} m/s")
+    click.echo(
+        f"Avg |Vv|:     {np.mean([abs(v) for v, _ in final_velocities]):.2f} m/s"
+    )
+    click.echo(
+        f"Avg |Vh|:     {np.mean([abs(h) for _, h in final_velocities]):.2f} m/s"
+    )
 
     env.close()
 

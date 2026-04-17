@@ -11,16 +11,14 @@ Usage:
     apollo play
 """
 
+import math
 from typing import Any
 
-import math
-
+import gymnasium as gym
 import numpy as np
-
 from flask import Flask, jsonify, render_template, request
 
 import apollo_lander.envs  # noqa: F401 — triggers env registration
-import gymnasium as gym
 
 
 def create_app(mode: str = "manual", crazy: bool = False) -> Flask:
@@ -53,7 +51,10 @@ def create_app(mode: str = "manual", crazy: bool = False) -> Flask:
         if app.config["env"] is None:
             app.config["env"] = gym.make("ApolloLander-v0")
 
-        if app.config["mode"] in ("autopilot", "assisted") and app.config["autopilot"] is None:
+        if (
+            app.config["mode"] in ("autopilot", "assisted")
+            and app.config["autopilot"] is None
+        ):
             from apollo_lander.autopilot import AGCAutopilot
 
             app.config["autopilot"] = AGCAutopilot()
@@ -139,9 +140,7 @@ def create_app(mode: str = "manual", crazy: bool = False) -> Flask:
             return jsonify({"error": "rod must be 0, 1, or 2"}), 400
 
         # Clamp RHC values to [-1, 1]
-        rhc_array = np.clip(
-            np.array(rhc, dtype=np.float32), -1.0, 1.0
-        )
+        rhc_array = np.clip(np.array(rhc, dtype=np.float32), -1.0, 1.0)
 
         # In assisted mode, the autopilot handles ROD (descent rate
         # scheduling) while the player controls RHC (horizontal steering).
@@ -162,9 +161,7 @@ def create_app(mode: str = "manual", crazy: bool = False) -> Flask:
 
         if terminated or truncated:
             app.config["game_over"] = True
-            app.config["landing_success"] = info.get(
-                "landing_success", False
-            )
+            app.config["landing_success"] = info.get("landing_success", False)
 
         return jsonify(_make_state())
 
@@ -190,9 +187,7 @@ def create_app(mode: str = "manual", crazy: bool = False) -> Flask:
 
         if terminated or truncated:
             app.config["game_over"] = True
-            app.config["landing_success"] = info.get(
-                "landing_success", False
-            )
+            app.config["landing_success"] = info.get("landing_success", False)
 
         return jsonify(_make_state())
 

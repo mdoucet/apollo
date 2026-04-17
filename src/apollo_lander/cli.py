@@ -17,7 +17,12 @@ def main() -> None:
 
 
 @main.command()
-@click.option("--crazy", is_flag=True, default=False, help="Wider random initial conditions (harder)")
+@click.option(
+    "--crazy",
+    is_flag=True,
+    default=False,
+    help="Wider random initial conditions (harder)",
+)
 def play(crazy: bool) -> None:
     """Launch manual play mode in the web browser.
 
@@ -36,7 +41,12 @@ def play(crazy: bool) -> None:
 
 
 @main.command()
-@click.option("--crazy", is_flag=True, default=False, help="Wider random initial conditions (harder)")
+@click.option(
+    "--crazy",
+    is_flag=True,
+    default=False,
+    help="Wider random initial conditions (harder)",
+)
 def assisted(crazy: bool) -> None:
     """Launch assisted mode — AGC handles descent rate, you steer.
 
@@ -59,7 +69,12 @@ def assisted(crazy: bool) -> None:
 
 
 @main.command()
-@click.option("--crazy", is_flag=True, default=False, help="Wider random initial conditions (harder)")
+@click.option(
+    "--crazy",
+    is_flag=True,
+    default=False,
+    help="Wider random initial conditions (harder)",
+)
 def assisted(crazy: bool) -> None:
     """Launch assisted mode — AGC handles descent rate, you steer.
 
@@ -82,8 +97,15 @@ def assisted(crazy: bool) -> None:
 
 
 @main.command()
-@click.option("--episodes", type=int, default=0, help="Headless episodes (0 = launch browser)")
-@click.option("--crazy", is_flag=True, default=False, help="Wider random initial conditions (harder)")
+@click.option(
+    "--episodes", type=int, default=0, help="Headless episodes (0 = launch browser)"
+)
+@click.option(
+    "--crazy",
+    is_flag=True,
+    default=False,
+    help="Wider random initial conditions (harder)",
+)
 def autopilot(episodes: int, crazy: bool) -> None:
     """Run the classical AGC autopilot (no RL).
 
@@ -104,7 +126,9 @@ def autopilot(episodes: int, crazy: bool) -> None:
         total_rewards: list[float] = []
         final_velocities: list[tuple[float, float]] = []
 
-        click.echo(f"Running AGC autopilot for {episodes} episodes{' (CRAZY mode)' if crazy else ''}...")
+        click.echo(
+            f"Running AGC autopilot for {episodes} episodes{' (CRAZY mode)' if crazy else ''}..."
+        )
 
         reset_options = {"crazy": True} if crazy else None
         for ep in range(episodes):
@@ -139,11 +163,17 @@ def autopilot(episodes: int, crazy: bool) -> None:
 
         import numpy as np
 
-        click.echo(f"\n{'='*55}")
-        click.echo(f"AGC Autopilot — {successes}/{episodes} landings ({100*successes/episodes:.1f}%)")
+        click.echo(f"\n{'=' * 55}")
+        click.echo(
+            f"AGC Autopilot — {successes}/{episodes} landings ({100 * successes / episodes:.1f}%)"
+        )
         click.echo(f"Avg reward:   {np.mean(total_rewards):.1f}")
-        click.echo(f"Avg |Vv|:     {np.mean([abs(v) for v, _ in final_velocities]):.2f} m/s")
-        click.echo(f"Avg |Vh|:     {np.mean([abs(h) for _, h in final_velocities]):.2f} m/s")
+        click.echo(
+            f"Avg |Vv|:     {np.mean([abs(v) for v, _ in final_velocities]):.2f} m/s"
+        )
+        click.echo(
+            f"Avg |Vh|:     {np.mean([abs(h) for _, h in final_velocities]):.2f} m/s"
+        )
         env.close()
     else:
         # Launch browser mode
@@ -153,7 +183,9 @@ def autopilot(episodes: int, crazy: bool) -> None:
 
 
 @main.command()
-@click.option("--algo", type=click.Choice(["ppo", "sac"]), default="ppo", help="RL algorithm")
+@click.option(
+    "--algo", type=click.Choice(["ppo", "sac"]), default="ppo", help="RL algorithm"
+)
 @click.option("--timesteps", type=int, default=100_000, help="Training timesteps")
 @click.option("--output", default="models/apollo_lander", help="Model save path")
 @click.option("--tensorboard", default="logs/", help="Tensorboard log dir")
@@ -163,12 +195,20 @@ def train(algo: str, timesteps: int, output: str, tensorboard: str) -> None:
 
     # Invoke the train click command programmatically
     ctx = click.Context(run_train)
-    ctx.invoke(run_train, algo=algo, timesteps=timesteps, output=output, tensorboard=tensorboard)
+    ctx.invoke(
+        run_train,
+        algo=algo,
+        timesteps=timesteps,
+        output=output,
+        tensorboard=tensorboard,
+    )
 
 
 @main.command()
 @click.option("--model", default="models/apollo_lander", help="Path to saved model")
-@click.option("--algo", type=click.Choice(["ppo", "sac"]), default="ppo", help="Algorithm used")
+@click.option(
+    "--algo", type=click.Choice(["ppo", "sac"]), default="ppo", help="Algorithm used"
+)
 @click.option("--episodes", type=int, default=20, help="Number of episodes")
 @click.option("--render/--no-render", default=False, help="Render visually")
 def evaluate(model: str, algo: str, episodes: int, render: bool) -> None:

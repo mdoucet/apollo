@@ -11,7 +11,9 @@ import webbrowser
 from apollo_lander.webapp import create_app
 
 
-def play(host: str = "127.0.0.1", port: int = 5050, mode: str = "manual", crazy: bool = False) -> None:
+def play(
+    host: str = "127.0.0.1", port: int = 5050, mode: str = "manual", crazy: bool = False
+) -> None:
     """
     Run the manual play mode via web browser.
 

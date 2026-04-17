@@ -144,7 +144,7 @@ class ApolloP66Guidance:
 
         # 3. DAP: PD controller to track target attitude
         attitude_error = self.target_attitude - attitude
-        attitude_error_deriv = (attitude_error - self._prev_attitude_error) / dt
+        # attitude_error_deriv = (attitude_error - self._prev_attitude_error) / dt
         self._prev_attitude_error = attitude_error.copy()
 
         # RCS torques would apply here in a full 6-DOF sim.
