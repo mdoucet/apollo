@@ -171,7 +171,111 @@ GUID: |·· · · · · · · · · ·|· · · · · · · · · ·|· · · ·
         </div>
 
         <!-- ============================================================ -->
-        <h2>2. CONTROLS</h2>
+        <h2>2. CREW vs. COMPUTER: WHO CONTROLS WHAT</h2>
+
+        <p>
+            In Program 66, the division of labor between the AGC and the Commander
+            was very specific. The AGC automated some tasks, but the astronaut
+            had to manually handle others — and those manual tasks were what made
+            landing on the Moon so challenging.
+        </p>
+
+        <div class="info-box green">
+            <h3>What the AGC Controlled (Automated)</h3>
+            <table>
+                <tbody>
+                    <tr>
+                        <td style="color:#0f0;width:140px;"><strong>Throttle</strong></td>
+                        <td>
+                            The RODCOMP algorithm computed DPS thrust to maintain the commanded
+                            descent rate. The astronaut <em>never</em> touched the throttle directly.
+                            (Source: <code>LUNAR_LANDING_GUIDANCE_EQUATIONS.agc</code> pp.816-819)
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="color:#0f0;"><strong>Attitude hold</strong></td>
+                        <td>
+                            When the RHC was released to center detent, the DAP fired opposing
+                            RCS jets to freeze the spacecraft at its current attitude.
+                            This is RCAH — Rate Command / Attitude Hold.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="info-box gold">
+            <h3>What the Commander Controlled (Manual)</h3>
+            <table>
+                <tbody>
+                    <tr>
+                        <td style="color:#b8960c;width:140px;"><strong>Horizontal steering</strong></td>
+                        <td>
+                            The CDR watched the LPDT cross-pointers (forward/lateral velocity from
+                            the landing radar) and manually steered with the RHC to null horizontal
+                            velocity and avoid obstacles. The AGC computed VHORIZ for display but
+                            did NOT act on it.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="color:#b8960c;"><strong>Descent rate</strong></td>
+                        <td>
+                            The CDR clicked the ROD switch at specific altitudes to progressively slow
+                            the sink rate: −5 ft/s high up → −3 mid → −2 low → −1 ft/s for final approach.
+                            Each click changed the AGC's VDGVERT register by exactly 1 ft/s.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="color:#b8960c;"><strong>Landing site</strong></td>
+                        <td>
+                            The CDR could pitch forward/back to redesignate the landing point.
+                            Armstrong famously did this on Apollo 11 to avoid a boulder field,
+                            burning extra fuel in the process.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3>Play Modes</h3>
+        <p>The three modes map directly to this crew/computer division of labor:</p>
+        <table>
+            <thead>
+                <tr><th>Mode</th><th>Command</th><th>You control</th><th>Computer controls</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="color:#0f0;"><strong>Manual</strong></td>
+                    <td><code>apollo play</code></td>
+                    <td>RHC + ROD (full astronaut experience)</td>
+                    <td>Throttle + attitude hold</td>
+                </tr>
+                <tr>
+                    <td style="color:#0f0;"><strong>Assisted</strong></td>
+                    <td><code>apollo assisted</code></td>
+                    <td>RHC only (horizontal steering)</td>
+                    <td>Throttle + attitude hold + ROD scheduling</td>
+                </tr>
+                <tr>
+                    <td style="color:#0f0;"><strong>Autopilot</strong></td>
+                    <td><code>apollo autopilot</code></td>
+                    <td>Nothing (observe)</td>
+                    <td>Everything</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-box">
+            <p>
+                <strong>Tip:</strong> Start with <strong>assisted</strong> mode to learn how
+                horizontal steering works. Once you're comfortable nulling velocity with
+                the RHC, switch to <strong>manual</strong> mode for the full astronaut experience
+                — you'll also need to manage your own descent rate schedule.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <h2>3. CONTROLS</h2>
 
         <h3>Rotational Hand Controller (RHC)</h3>
         <p>
@@ -186,19 +290,19 @@ GUID: |·· · · · · · · · · ·|· · · · · · · · · ·|· · · ·
                 <tr><th>Key</th><th>Axis</th><th>Effect</th><th>RHC Value</th></tr>
             </thead>
             <tbody>
-                <tr><td><kbd>↑</kbd></td><td>Pitch</td><td>Pitch forward (nose down)</td><td>−0.5</td></tr>
-                <tr><td><kbd>↓</kbd></td><td>Pitch</td><td>Pitch back (nose up)</td><td>+0.5</td></tr>
-                <tr><td><kbd>←</kbd></td><td>Roll</td><td>Roll left</td><td>−0.5</td></tr>
-                <tr><td><kbd>→</kbd></td><td>Roll</td><td>Roll right</td><td>+0.5</td></tr>
-                <tr><td><kbd>Q</kbd></td><td>Yaw</td><td>Yaw left</td><td>−0.5</td></tr>
-                <tr><td><kbd>E</kbd></td><td>Yaw</td><td>Yaw right</td><td>+0.5</td></tr>
+                <tr><td><kbd>↑</kbd></td><td>Pitch</td><td>Pitch forward (nose down)</td><td>−1.0</td></tr>
+                <tr><td><kbd>↓</kbd></td><td>Pitch</td><td>Pitch back (nose up)</td><td>+1.0</td></tr>
+                <tr><td><kbd>←</kbd></td><td>Roll</td><td>Roll left</td><td>−1.0</td></tr>
+                <tr><td><kbd>→</kbd></td><td>Roll</td><td>Roll right</td><td>+1.0</td></tr>
+                <tr><td><kbd>Q</kbd></td><td>Yaw</td><td>Yaw left</td><td>−1.0</td></tr>
+                <tr><td><kbd>E</kbd></td><td>Yaw</td><td>Yaw right</td><td>+1.0</td></tr>
             </tbody>
         </table>
 
         <p>
             The RHC deflection (±0.5 in this sim) is multiplied by the max rotation rate
             each DAP cycle. So holding <kbd>↑</kbd> for one tick rotates the target attitude
-            by: <code>0.5 × 0.349 × 0.1 ≈ 0.017 rad ≈ 1° per tick</code>.
+            by: <code>1.0 × 0.349 × 0.1 ≈ 0.035 rad ≈ 2° per tick</code>.
         </p>
         <p style="color:#888;">
             On the real LM, the RHC was a pistol-grip stick between the two astronauts.
@@ -248,7 +352,7 @@ GUID: |·· · · · · · · · · ·|· · · · · · · · · ·|· · · ·
         </p>
 
         <!-- ============================================================ -->
-        <h2>3. HOW CONTROLS INTERACT WITH TIMING</h2>
+        <h2>4. HOW CONTROLS INTERACT WITH TIMING</h2>
 
         <div class="info-box green">
             <p>
@@ -288,7 +392,7 @@ Pilot presses PgUp at t=0.0
         </div>
 
         <!-- ============================================================ -->
-        <h2>4. THE DSKY: VERB AND NOUN</h2>
+        <h2>5. THE DSKY: VERB AND NOUN</h2>
 
         <p>
             The <strong>DSKY</strong> (Display and Keyboard, pronounced "dis-key") was
@@ -399,9 +503,9 @@ Pilot presses PgUp at t=0.0
         </table>
 
         <!-- ============================================================ -->
-        <h2>5. LANDING CRITERIA</h2>
+        <h2>6. LANDING CRITERIA</h2>
 
-        <p>For a successful touchdown, your velocities must be within these limits
+        <p>For a successful touchdown, your velocities and terrain must be within these limits
            when the LM reaches the surface:</p>
 
         <table>
@@ -419,6 +523,11 @@ Pilot presses PgUp at t=0.0
                     <td class="highlight">≤ 0.6 m/s (≈ 2 ft/s)</td>
                     <td>Prevents tipping; gear absorbs some lateral motion</td>
                 </tr>
+                <tr>
+                    <td>Terrain slope</td>
+                    <td class="highlight">≤ 12°</td>
+                    <td>LM footpad span ~14 ft; slopes beyond 12° risk toppling</td>
+                </tr>
             </tbody>
         </table>
 
@@ -431,14 +540,14 @@ Pilot presses PgUp at t=0.0
                 <strong>Failure modes:</strong>
             </p>
             <ul>
-                <li><span class="crit">CRASH</span> — Touched down too fast (exceeded velocity limits)</li>
+                <li><span class="crit">CRASH</span> — Touched down too fast or on too steep a slope</li>
                 <li><span class="warn">FUEL EXHAUSTED</span> — DPS propellant depleted before touchdown</li>
                 <li><span class="warn">TIMEOUT</span> — Exceeded 300 seconds (3000 DAP cycles) of flight time</li>
             </ul>
         </div>
 
         <!-- ============================================================ -->
-        <h2>6. FLIGHT TIPS</h2>
+        <h2>7. FLIGHT TIPS</h2>
 
         <ol>
             <li>

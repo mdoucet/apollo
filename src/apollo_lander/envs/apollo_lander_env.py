@@ -24,6 +24,7 @@ from apollo_lander.constants import (
     LM_FUEL_MASS,
     LM_TOTAL_MASS,
     MAX_LANDING_HORIZONTAL_VEL,
+    MAX_LANDING_SLOPE_DEG,
     MAX_LANDING_VERTICAL_VEL,
     P66_INITIAL_ALTITUDE,
     P66_INITIAL_DESCENT_RATE,
@@ -119,11 +120,6 @@ class ApolloLanderEnv(gym.Env):
         # terrain_height(x) gives elevation offset relative to R_MOON.
         self._terrain_components: list[tuple[float, float, float]] = []
 
-        # Terrain: random height profile generated at reset.
-        # Stored as sinusoidal components for compact representation.
-        # terrain_height(x) gives elevation offset relative to R_MOON.
-        self._terrain_components: list[tuple[float, float, float]] = []
-
     def reset(
         self,
         *,
@@ -133,10 +129,20 @@ class ApolloLanderEnv(gym.Env):
         """
         Reset the environment to P66 start conditions.
 
+        Args:
+            seed: Random seed for reproducibility.
+            options: Optional config dict. Supported keys:
+                "crazy" (bool): If True, use much wider random initial
+                    conditions — large position offsets, faster velocities,
+                    tilted attitude, and rougher terrain.
+
         Returns:
             Tuple of (observation, info_dict).
         """
         super().reset(seed=seed)
+
+        crazy = options is not None and options.get("crazy", False)
+        randomize = options is None or crazy
 
         # Position: directly above landing site at P66 altitude
         # In MCI frame, place LM above the surface along +Z axis
@@ -145,13 +151,26 @@ class ApolloLanderEnv(gym.Env):
         altitude = P66_INITIAL_ALTITUDE
         r_surface = R_MOON + altitude + LM_CG_TO_FOOTPAD
 
-        # Small random perturbation for training variety
         rng = self.np_random
-        pos_noise = rng.uniform(-10.0, 10.0, size=3) if options is None else np.zeros(3)
+        if randomize:
+            if crazy:
+                # Wide initial conditions — much harder landing
+                pos_noise = rng.uniform(-50.0, 50.0, size=3)
+                pos_noise[2] = rng.uniform(-50.0, 50.0)  # altitude ±50 m
+            else:
+                pos_noise = rng.uniform(-10.0, 10.0, size=3)
+        else:
+            pos_noise = np.zeros(3)
         position = np.array([0.0, 0.0, r_surface]) + pos_noise
 
         # Velocity: small horizontal + descent rate
-        vel_noise = rng.uniform(-0.5, 0.5, size=3) if options is None else np.zeros(3)
+        if randomize:
+            if crazy:
+                vel_noise = rng.uniform(-3.0, 3.0, size=3)
+            else:
+                vel_noise = rng.uniform(-0.5, 0.5, size=3)
+        else:
+            vel_noise = np.zeros(3)
         velocity = np.array(
             [P66_INITIAL_HORIZONTAL_VEL, 0.0, P66_INITIAL_DESCENT_RATE]
         ) + vel_noise
@@ -163,7 +182,13 @@ class ApolloLanderEnv(gym.Env):
         ])
 
         # Attitude: nearly upright (engine pointing down = +Z body axis up)
-        att_noise = rng.uniform(-0.02, 0.02, size=3) if options is None else np.zeros(3)
+        if randomize:
+            if crazy:
+                att_noise = rng.uniform(-0.15, 0.15, size=3)  # up to ~8.6°
+            else:
+                att_noise = rng.uniform(-0.02, 0.02, size=3)
+        else:
+            att_noise = np.zeros(3)
         self._attitude = np.zeros(3) + att_noise
 
         self._guidance.reset()
@@ -171,15 +196,13 @@ class ApolloLanderEnv(gym.Env):
         self._guidance_step_counter = 0
 
         # Generate random terrain profile (sum of sinusoids).
-        # Apollo landing sites were relatively flat mare regions, but
-        # with gentle undulations and small craters. We model this as
-        # low-frequency height variation of ±3 m, with the landing pad
-        # (x=0) pinned to zero elevation.
         self._terrain_components = []
-        if options is None:
-            for _ in range(5):
-                amplitude = float(rng.uniform(0.3, 1.5))  # meters
-                wavelength = float(rng.uniform(40.0, 200.0))  # meters
+        if randomize:
+            num_components = 8 if crazy else 5
+            amp_hi = 4.0 if crazy else 1.5
+            for _ in range(num_components):
+                amplitude = float(rng.uniform(0.3, amp_hi))
+                wavelength = float(rng.uniform(40.0, 200.0))
                 phase = float(rng.uniform(0.0, 2.0 * np.pi))
                 self._terrain_components.append((amplitude, wavelength, phase))
 
@@ -199,6 +222,19 @@ class ApolloLanderEnv(gym.Env):
                 - np.sin(phase)
             )
         return float(h)
+
+    def _terrain_slope_deg(self, x: float) -> float:
+        """Compute terrain slope at horizontal distance x from the pad.
+
+        Returns the slope angle in degrees. Computed analytically from
+        the derivative of the sinusoidal terrain profile.
+        """
+        dh_dx = 0.0
+        for amplitude, wavelength, phase in self._terrain_components:
+            dh_dx += amplitude * (2.0 * np.pi / wavelength) * np.cos(
+                2.0 * np.pi * x / wavelength + phase
+            )
+        return float(np.degrees(np.arctan(abs(dh_dx))))
 
     def step(
         self,
@@ -244,17 +280,24 @@ class ApolloLanderEnv(gym.Env):
 
         v_vertical, v_horizontal = compute_surface_velocity(self._state)
         fuel_remaining = self._state[6] - (LM_DRY_MASS + LM_ASCENT_MASS)
+        slope_deg = self._terrain_slope_deg(horiz_pos)
 
         terminated = False
         truncated = False
         landing_success = False
         termination_reason = ""
 
-        if altitude <= 0:
+        # Landing detection: trigger when footpads are within 0.3 m of
+        # the terrain surface.  The real LM had 1.7 m contact probes
+        # below the footpads; 0.3 m is conservative and prevents the
+        # edge case where lateral drift over undulating terrain keeps
+        # the terrain-adjusted altitude oscillating just above zero.
+        if altitude <= 0.3:
             terminated = True
             if (
                 abs(v_vertical) <= MAX_LANDING_VERTICAL_VEL
-                and v_horizontal <= MAX_LANDING_HORIZONTAL_VEL
+                and abs(v_horizontal) <= MAX_LANDING_HORIZONTAL_VEL
+                and slope_deg <= MAX_LANDING_SLOPE_DEG
             ):
                 landing_success = True
                 termination_reason = "landing"
@@ -359,4 +402,5 @@ class ApolloLanderEnv(gym.Env):
             "target_descent_rate": self._guidance.target_descent_rate,
             "step": self._step_count,
             "terrain": self._terrain_components,
+            "slope_deg": self._terrain_slope_deg(horiz_pos),
         }

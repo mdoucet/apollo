@@ -110,6 +110,18 @@ Source verification: Fetched and analyzed the real Luminary099 AGC source files:
 - `CONTROLLED_CONSTANTS.agc` — THROTLAG, SCALEFAC, FDPS values
 - `ERASABLE_ASSIGNMENTS.agc` — TAUROD, LAG/TAU, RODSCALE, MINFORCE, MAXFORCE locations
 
+### 2026-04-16: RHC Rate Command / Attitude Hold (RCAH) Mode
+
+The RHC operated in **RCAH mode** during P66, which has two distinct states:
+
+1. **Out of Detent (Rate Command):** Stick deflection → commanded rotation rate (proportional, max 20°/s at full deflection). The DAP fires RCS jets to maintain that rotational velocity.
+
+2. **In Detent (Attitude Hold):** When the stick centers (springs snap it back), the AGC instantly captures the **current actual attitude** as the new hold target and fires opposing jets to kill residual rotation.
+
+**Bug fixed:** Our original code always integrated `rhc * max_rate * dt` into `target_attitude`. When the stick centered, `target_attitude` could be ahead of actual `_attitude` (due to 0.3 tracking lag), causing the craft to keep rotating to catch up — the opposite of RCAH "freeze where you are" behavior. Fix: when `|rhc| < 0.01`, snap `target_attitude = attitude.copy()`.
+
+The ROD switch was confirmed correct: `Discrete(3)` maps to edge-triggered clicks (each click = ±0.3048 m/s). Holding the switch has no additional effect, matching the spring-loaded toggle behavior.
+
 ### 2026-04-15: Altitude Reference — CG vs Footpads
 
 The real AGC computed altitude as CG-to-surface (`HCALC = ABVAL(R1S) - /LAND/`) per SERVICER.agc. The LM footpads sit ~4.2 m below the CG. Our `compute_altitude()` returns footpad altitude = `r_norm - R_MOON - LM_CG_TO_FOOTPAD` so landing detection triggers when feet touch the surface, not the CG.
@@ -123,3 +135,19 @@ Our simulation adds terrain roughness directly:
 - **Altitude adjustment**: `terrain_altitude = compute_altitude(state) - terrain_height(x_horiz)`. Landing detection uses terrain-adjusted altitude.
 - **Terrain data flow**: Generated at `env.reset()` → stored as `_terrain_components` → passed via info dict → webapp sends to client → JavaScript `terrainHeight(x)` mirrors the server formula → canvas draws filled polygon surface.
 - **Impact**: Autopilot maintains 100% landing success (20/20). Terrain variation is small (a few meters) compared to typical approach altitude (150 m), consistent with Apollo mare landing sites.
+
+### 2026-04-16: Three Play Modes — Crew vs. Computer Division of Labor
+
+The simulation offers three modes that map to the real crew/computer division of labor in P66:
+
+| Mode | CLI Command | Player controls | Computer controls |
+|---|---|---|---|
+| **Manual** | `apollo play` | RHC + ROD (full astronaut experience) | Throttle (RODCOMP) + attitude hold (RCAH) |
+| **Assisted** | `apollo assisted` | RHC only (horizontal steering) | Throttle + attitude hold + ROD scheduling |
+| **Autopilot** | `apollo autopilot` | Nothing (observe) | Everything (RHC + ROD + throttle + attitude hold) |
+
+**Manual** is the authentic P66 CDR experience — the player does exactly what the real astronaut did (steer with RHC, schedule descent rate with ROD clicks), while the AGC handles throttle and attitude hold automatically.
+
+**Assisted** is a training mode: the autopilot handles ROD scheduling (the more procedural part), letting the player focus on horizontal velocity nulling with the RHC (the skill-intensive part).
+
+**Autopilot** automates everything, including crew procedures (horizontal steering and ROD scheduling) that the real AGC did NOT do. These crew procedure approximations use a PD controller for horizontal nulling and altitude-based ROD scheduling — clearly separated from the authentic AGC code.

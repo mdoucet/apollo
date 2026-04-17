@@ -43,8 +43,11 @@ class ApolloP66Guidance:
     P66 flight control system.
 
     Mimics the Apollo Guidance Computer's Program 66 mode where:
-    - The astronaut commands attitude rates via a 3-axis hand controller
-    - The astronaut adjusts sink rate via ROD switch clicks
+    - The RHC operates in Rate Command / Attitude Hold (RCAH) mode:
+      stick deflected → commands rotation rate; stick centered → AGC
+      captures current attitude and holds it indefinitely
+    - The ROD switch is edge-triggered: each click adjusts VDGVERT
+      by ±1 ft/s; holding the switch has no additional effect
     - The AGC handles throttle to maintain the commanded descent rate
     - The DAP holds attitude when no input is given
 
@@ -112,10 +115,32 @@ class ApolloP66Guidance:
         elif rod_action == 2:
             self.target_descent_rate -= ROD_INCREMENT  # increase sink rate
 
-        # 2. Update target attitude from RHC input
-        # RHC commands attitude rate; when centered, attitude is held
-        commanded_rates = rhc_input * self.max_rate
-        self.target_attitude = self.target_attitude + commanded_rates * dt
+        # 2. RHC: Rate Command / Attitude Hold (RCAH)
+        #
+        # Real AGC P66 behavior:
+        #   OUT OF DETENT (stick deflected): The stick deflection is read
+        #     as a commanded rotation RATE. The DAP fires RCS jets to
+        #     maintain that rotational velocity. Full deflection = max rate
+        #     (20°/s). target_attitude integrates accordingly.
+        #
+        #   IN DETENT (stick centered): The moment the transducers read
+        #     zero, the AGC captures the CURRENT spacecraft attitude as
+        #     the new hold target and fires opposing jets to kill any
+        #     residual rotation, freezing the craft at that angle.
+        #
+        # Source: Apollo Operations Handbook, P66 RCAH mode description
+        rhc_magnitude = float(np.linalg.norm(rhc_input))
+
+        if rhc_magnitude > 0.01:
+            # Rate Command mode: integrate commanded rate into target
+            commanded_rates = rhc_input * self.max_rate
+            self.target_attitude = self.target_attitude + commanded_rates * dt
+        else:
+            # Attitude Hold mode: capture current attitude as hold target
+            # This is the key RCAH behavior — when the stick centers,
+            # the AGC freezes the craft at its CURRENT orientation,
+            # not wherever target_attitude had drifted to.
+            self.target_attitude = attitude.copy()
 
         # 3. DAP: PD controller to track target attitude
         attitude_error = self.target_attitude - attitude

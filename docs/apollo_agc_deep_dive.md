@@ -79,14 +79,23 @@ feet (152 m) altitude.
 
 P66 was not fully manual and not fully automatic. The astronaut had two controls:
 
-1. **Rotational Hand Controller (RHC)** — a 3-axis joystick commanding attitude
-   *rates*, not positions. Push forward → pitch forward at some rate. Release →
-   the AGC holds the current attitude automatically.
+1. **Rotational Hand Controller (RHC)** — a 3-axis joystick with heavy spring
+   centering, operating in **Rate Command / Attitude Hold (RCAH)** mode. When
+   pushed out of its center detent, the stick deflection commands a rotation
+   *rate* proportional to deflection (max 20°/s at full throw). The DAP fires
+   RCS jets to maintain that rotational velocity. The instant the astronaut
+   releases the stick, the springs snap it back to center and the AGC
+   immediately captures the spacecraft's **current attitude** as the new hold
+   target — firing opposing jets to kill any residual rotation and freezing the
+   craft at that angle indefinitely.
 
-2. **Rate of Descent (ROD) switch** — a two-position toggle switch on the
-   thrust/translation controller. Each click (up or down) adjusts the AGC's
-   target sink rate by exactly **1 ft/s (0.3048 m/s)**. The AGC manages the
-   throttle autonomously to track this rate.
+2. **Rate of Descent (ROD) switch** — a spring-loaded toggle switch on the
+   commander's panel. It rests in a neutral center position. Pushing it up or
+   down completes a circuit, but the spring snaps it back as soon as the
+   astronaut lets go. The AGC registers only the **rising edge** of the signal —
+   holding the switch has no additional effect. Each click adjusts the target
+   sink rate by exactly **±1 ft/s (±0.3048 m/s)**. To change the rate by 3 ft/s,
+   the astronaut had to physically actuate the switch three distinct times.
 
 The astronaut never directly controlled thrust level. The CDR set a sink rate
 with ROD clicks and steered laterally with the RHC. The AGC did everything else.
@@ -108,6 +117,29 @@ with ROD clicks and steered laterally with the RHC. The AGC did everything else.
 ```
 
 **Source:** `LUNAR_LANDING_GUIDANCE_EQUATIONS.agc` pp. 798–828
+
+### Mapping to a Gymnasium action space
+
+These physical controls map naturally to the RL environment:
+
+```python
+action_space = Dict({
+    "rhc": Box(low=-1.0, high=1.0, shape=(3,)),  # RHC stick deflection
+    "rod": Discrete(3),                            # ROD switch: 0=none, 1=up, 2=down
+})
+```
+
+**RHC → `Box(3, [-1, 1])`:** A continuous value maps perfectly to RCAH. The
+agent outputs `[0.5, 0.0, 0.0]` → the DAP commands 10°/s rotation (half of
+20°/s max). The agent outputs `[0.0, 0.0, 0.0]` → the DAP captures the current
+attitude and holds it. The RCAH logic means the agent doesn't need to learn
+high-frequency jet firing patterns — just that pushing the stick changes heading
+and releasing it locks the heading.
+
+**ROD → `Discrete(3)`:** Each non-zero action is a single edge-triggered click.
+The action returns to "neutral" (0) automatically on the next step, matching the
+spring-loaded toggle behavior. The agent must output `1` or `2` on separate
+steps to get multiple clicks.
 
 ---
 
@@ -220,14 +252,37 @@ commanded_thrust = np.clip(commanded_force, MIN_THRUST, MAX_THRUST)
 ## The Digital Autopilot (DAP)
 
 The DAP was a separate piece of software from the guidance equations. It ran at
-**10 Hz** (every 100 ms) via the T6 interrupt, handling:
+**10 Hz** (every 100 ms) via the T6 interrupt, implementing the **Rate Command /
+Attitude Hold (RCAH)** paradigm:
 
-1. **Attitude hold** — When the RHC was centered, the DAP fired RCS jets to
-   maintain the current attitude
-2. **Rate control** — When the RHC was deflected, the DAP commanded attitude
-   rates proportional to stick deflection
-3. **Thrust direction** — Translating the commanded thrust magnitude into the
-   actual engine gimbal commands
+### RCAH: Two modes in one controller
+
+**State 1 — Out of Detent (Rate Command):**
+When the astronaut pushed the stick out of its center detent, transducers
+converted the physical angle into an electrical signal. The AGC read this signal
+as a *commanded rate of rotation*:
+
+- A slight push might command 5°/s
+- Full deflection (hard stop) commanded the maximum: **20°/s**
+- The DAP fired RCS jets as needed to maintain that specific rotational velocity
+- The spacecraft's attitude changed continuously at the commanded rate
+
+**State 2 — In Detent (Attitude Hold):**
+When the astronaut released the stick, the physical springs snapped it to the
+absolute center (the detent). At that instant:
+
+1. The AGC read zero deflection → set commanded rate to 0°/s
+2. **Critically:** the AGC recorded the spacecraft's *current spatial attitude*
+   as the new hold target
+3. The DAP fired opposing RCS jets to kill whatever rotational momentum remained
+4. The craft was frozen at that angle and held there indefinitely
+
+This RCAH logic is elegant: the astronaut doesn't need to think about
+limit-cycle jet firing patterns. Push the stick → the spacecraft turns. Let go →
+it stops and stays. The AGC handles all the high-frequency thruster control
+automatically.
+
+### Timing architecture
 
 ### Timing architecture
 
@@ -256,7 +311,22 @@ The DAP was a separate piece of software from the guidance equations. It ran at
 
 We model the DAP as the `env.step()` loop running at 10 Hz (dt = 0.1 s). The
 guidance equations in `guidance.py` run at 2.0 s intervals within this loop.
-Attitude tracking uses a PD controller with gains kp=2.0, kd=1.5.
+
+The RCAH logic is implemented in `guidance.py`:
+
+```python
+if rhc_magnitude > 0.01:
+    # Rate Command: integrate commanded rate into target attitude
+    commanded_rates = rhc_input * self.max_rate  # max_rate = 20°/s
+    self.target_attitude += commanded_rates * dt
+else:
+    # Attitude Hold: capture current attitude as new target
+    # This is the key RCAH behavior — freeze at current orientation
+    self.target_attitude = attitude.copy()
+```
+
+The 0.01 deadband corresponds to the physical detent — the spring centering
+mechanism ensured the RHC couldn't rest at tiny non-zero deflections.
 
 ---
 

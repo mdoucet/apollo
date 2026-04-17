@@ -118,7 +118,9 @@ def compute_surface_velocity(state: np.ndarray) -> tuple[float, float]:
 
     Returns:
         Tuple of (vertical_velocity, horizontal_velocity) in m/s.
-        Vertical is positive upward, horizontal is the tangential magnitude.
+        Vertical is positive upward.
+        Horizontal is signed: positive = moving in the +X direction
+        (rightward in the 2D side-view), negative = leftward.
     """
     r_vec = state[0:3]
     v_vec = state[3:6]
@@ -133,7 +135,17 @@ def compute_surface_velocity(state: np.ndarray) -> tuple[float, float]:
     # Vertical velocity: projection of v onto radial direction
     v_vertical = float(np.dot(v_vec, r_hat))
 
-    # Horizontal velocity: magnitude of tangential component
-    v_horizontal = float(np.linalg.norm(v_vec - v_vertical * r_hat))
+    # Horizontal velocity: signed component in the local horizontal plane.
+    # "East" direction = perpendicular to r_hat in the X-Z plane,
+    # pointing in the +X direction (rightward in the side-view).
+    # east_hat = cross([0,1,0], r_hat) → [rz, 0, -rx] / norm
+    v_tangential = v_vec - v_vertical * r_hat
+    east_hat = np.array([r_hat[2], 0.0, -r_hat[0]])
+    east_norm = np.linalg.norm(east_hat)
+    if east_norm < 1e-10:
+        return v_vertical, 0.0
+    east_hat = east_hat / east_norm
+
+    v_horizontal = float(np.dot(v_tangential, east_hat))
 
     return v_vertical, v_horizontal

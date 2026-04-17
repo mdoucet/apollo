@@ -96,7 +96,7 @@ def evaluate(model: str, algo: str, episodes: int, render: bool) -> None:
     click.echo(f"Success rate: {successes}/{episodes} ({100*successes/episodes:.1f}%)")
     click.echo(f"Avg reward:   {np.mean(total_rewards):.1f}")
     click.echo(f"Avg |Vv|:     {np.mean([abs(v) for v, _ in final_velocities]):.2f} m/s")
-    click.echo(f"Avg Vh:       {np.mean([h for _, h in final_velocities]):.2f} m/s")
+    click.echo(f"Avg |Vh|:     {np.mean([abs(h) for _, h in final_velocities]):.2f} m/s")
 
     env.close()
 

@@ -13,6 +13,8 @@ Usage:
 
 from typing import Any
 
+import math
+
 import numpy as np
 
 from flask import Flask, jsonify, render_template, request
@@ -21,13 +23,14 @@ import apollo_lander.envs  # noqa: F401 — triggers env registration
 import gymnasium as gym
 
 
-def create_app(mode: str = "manual") -> Flask:
+def create_app(mode: str = "manual", crazy: bool = False) -> Flask:
     """
     Create and configure the Flask application.
 
     Args:
         mode: Play mode — "manual" for keyboard control,
               "autopilot" for classical AGC autopilot.
+        crazy: If True, use much wider random initial conditions.
 
     Returns:
         Configured Flask app instance.
@@ -43,18 +46,21 @@ def create_app(mode: str = "manual") -> Flask:
     app.config["landing_success"] = False
     app.config["mode"] = mode
     app.config["autopilot"] = None
+    app.config["crazy"] = crazy
 
     def _reset_game() -> None:
         """Initialize or reset the Gymnasium environment."""
         if app.config["env"] is None:
             app.config["env"] = gym.make("ApolloLander-v0")
 
-        if app.config["mode"] == "autopilot" and app.config["autopilot"] is None:
+        if app.config["mode"] in ("autopilot", "assisted") and app.config["autopilot"] is None:
             from apollo_lander.autopilot import AGCAutopilot
 
             app.config["autopilot"] = AGCAutopilot()
 
-        obs, info = app.config["env"].reset()
+        obs, info = app.config["env"].reset(
+            options={"crazy": True} if app.config["crazy"] else None
+        )
         app.config["obs"] = obs
         app.config["info"] = info
         app.config["total_reward"] = 0.0
@@ -64,22 +70,30 @@ def create_app(mode: str = "manual") -> Flask:
         if app.config["autopilot"] is not None:
             app.config["autopilot"].reset()
 
+    def _safe_float(val: Any) -> float:
+        """Convert to float, replacing NaN/Inf with 0 for JSON safety."""
+        f = float(val)
+        if math.isfinite(f):
+            return f
+        return 0.0
+
     def _make_state() -> dict[str, Any]:
         """Build a JSON-serializable state dict from the current env."""
         info = app.config["info"]
         obs = app.config["obs"]
         return {
-            "altitude": float(info["altitude"]),
-            "vertical_velocity": float(info["vertical_velocity"]),
-            "horizontal_velocity": float(info["horizontal_velocity"]),
-            "fuel_remaining": float(info["fuel_remaining"]),
-            "mass": float(info["mass"]),
-            "target_descent_rate": float(info["target_descent_rate"]),
-            "total_reward": float(app.config["total_reward"]),
+            "altitude": _safe_float(info["altitude"]),
+            "vertical_velocity": _safe_float(info["vertical_velocity"]),
+            "horizontal_velocity": _safe_float(info["horizontal_velocity"]),
+            "fuel_remaining": _safe_float(info["fuel_remaining"]),
+            "mass": _safe_float(info["mass"]),
+            "target_descent_rate": _safe_float(info["target_descent_rate"]),
+            "total_reward": _safe_float(app.config["total_reward"]),
             "game_over": app.config["game_over"],
             "landing_success": app.config["landing_success"],
             "termination_reason": info.get("termination_reason", ""),
-            "obs": obs.tolist() if obs is not None else [],
+            "slope_deg": _safe_float(info.get("slope_deg", 0.0)),
+            "obs": [_safe_float(v) for v in obs] if obs is not None else [],
             "mode": app.config["mode"],
             "terrain": info.get("terrain", []),
         }
@@ -128,6 +142,15 @@ def create_app(mode: str = "manual") -> Flask:
         rhc_array = np.clip(
             np.array(rhc, dtype=np.float32), -1.0, 1.0
         )
+
+        # In assisted mode, the autopilot handles ROD (descent rate
+        # scheduling) while the player controls RHC (horizontal steering).
+        # This replicates the real division of labor: the crew procedure
+        # for ROD was relatively mechanical (click by altitude), but
+        # horizontal nulling required skill and situational awareness.
+        if app.config["mode"] == "assisted" and app.config["autopilot"] is not None:
+            auto_action, _ = app.config["autopilot"].predict(app.config["obs"])
+            rod = int(auto_action["rod"])
 
         action = {"rhc": rhc_array, "rod": int(rod)}
         env = app.config["env"]

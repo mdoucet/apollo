@@ -1,5 +1,7 @@
 # Apollo Lander
 
+<img src="apollo-game.png" alt="Apollo Lander" width="600">
+
 A Python simulation of the Apollo Lunar Module descent, based on the real Apollo 11 [Luminary099](https://github.com/chrislgarry/Apollo-11/tree/master/Luminary099) AGC code. Fly the spacecraft manually using authentic Program 66 controls, or train a reinforcement learning agent to land autonomously.
 
 ## Overview
@@ -37,7 +39,7 @@ pip install -e ".[all]"
 apollo play
 ```
 
-This opens the simulation in your web browser at `http://127.0.0.1:5050`.
+This opens the simulation in your web browser at `http://127.0.0.1:5050`. You control everything the real astronaut controlled — horizontal steering and descent rate — while the AGC handles the throttle and attitude hold automatically.
 
 **Controls:**
 | Key | Action |
@@ -46,7 +48,15 @@ This opens the simulation in your web browser at `http://127.0.0.1:5050`.
 | Q / E | Yaw |
 | Page Up | Decrease sink rate (ROD up, −1 ft/s) |
 | Page Down | Increase sink rate (ROD down, +1 ft/s) |
-| Escape | Quit |
+| Enter | Reset after game over |
+
+### Assisted mode — focus on steering
+
+```bash
+apollo assisted
+```
+
+The autopilot handles descent rate scheduling (ROD clicks by altitude), but you must manually steer the LM to null horizontal velocity using the RHC — the hardest part of the Commander's job. This is a good way to learn the controls before going fully manual.
 
 ### Watch the AGC autopilot land
 
@@ -54,7 +64,7 @@ This opens the simulation in your web browser at `http://127.0.0.1:5050`.
 apollo autopilot
 ```
 
-This runs a classical (non-RL) autopilot that replicates the real Apollo P66 landing procedure. The throttle is controlled by the AGC's RODCOMP algorithm (faithfully ported from the [Luminary099](https://github.com/chrislgarry/Apollo-11/blob/master/Luminary099/LUNAR_LANDING_GUIDANCE_EQUATIONS.agc) source code), while horizontal velocity is nulled by a simulated Commander on the RHC — just as in the real mission.
+Everything is automated: the autopilot handles both the descent rate (ROD) and horizontal steering (RHC). This simulates a skilled Commander flying a perfect approach. Watch how it nulls horizontal velocity and schedules the descent profile.
 
 Run headless evaluation:
 
@@ -148,6 +158,26 @@ In the real Apollo 11 landing, the astronaut didn't fly the Lunar Module like a 
 3. **Descent Propulsion System (DPS):** The main engine, throttleable from 10% to 100% (4,504 N to 45,040 N). The AGC controlled the throttle — the astronaut never touched it directly.
 
 This simulation replicates exactly that control scheme.
+
+### What the computer controlled vs. what the astronaut controlled
+
+In P66, the division of labor between the AGC and the Commander was very specific:
+
+| | AGC (automated) | Commander (manual) |
+|---|---|---|
+| **Throttle** | RODCOMP algorithm computed thrust to maintain the commanded descent rate. The astronaut never touched the throttle directly. | — |
+| **Attitude hold** | When the RHC was released (center detent), the DAP fired opposing RCS jets to freeze the spacecraft at its current attitude (RCAH mode). | — |
+| — | — | **Horizontal steering** — The CDR watched the LPDT cross-pointers (forward/lateral velocity from the landing radar) and manually steered with the RHC to null horizontal velocity and avoid obstacles. |
+| — | — | **Descent rate scheduling** — The CDR clicked the ROD switch at specific altitudes to progressively slow the sink rate (−5 ft/s → −3 → −2 → −1 ft/s for final approach). |
+| — | — | **Landing site selection** — The CDR could pitch forward/back to redesignate the landing point. Armstrong famously did this on Apollo 11 to avoid a boulder field. |
+
+The three play modes map to this division of labor:
+
+| Mode | You control | Computer controls |
+|---|---|---|
+| `apollo play` | RHC + ROD (full astronaut experience) | Throttle + attitude hold |
+| `apollo assisted` | RHC only (horizontal steering) | Throttle + attitude hold + ROD scheduling |
+| `apollo autopilot` | Nothing (observe) | Everything |
 
 ## Running Tests
 

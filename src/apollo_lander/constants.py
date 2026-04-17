@@ -301,3 +301,11 @@ operational margin.
 
 MAX_LANDING_HORIZONTAL_VEL = 0.6
 """Maximum horizontal velocity for a safe landing (m/s)."""
+
+MAX_LANDING_SLOPE_DEG = 12.0
+"""Maximum terrain slope for a safe landing (degrees).
+
+The LM landing gear had a footpad span of ~14 ft (4.3 m) and ~6 ft
+(1.8 m) ground clearance. Slopes beyond ~12° risk toppling the
+spacecraft. Apollo landing sites were selected for slopes < 2°.
+"""

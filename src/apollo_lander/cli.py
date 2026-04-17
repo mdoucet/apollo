@@ -17,7 +17,8 @@ def main() -> None:
 
 
 @main.command()
-def play() -> None:
+@click.option("--crazy", is_flag=True, default=False, help="Wider random initial conditions (harder)")
+def play(crazy: bool) -> None:
     """Launch manual play mode in the web browser.
 
     Starts a local Flask server and opens the game page.
@@ -31,12 +32,59 @@ def play() -> None:
     """
     from apollo_lander.manual import play as run_play
 
-    run_play()
+    run_play(crazy=crazy)
+
+
+@main.command()
+@click.option("--crazy", is_flag=True, default=False, help="Wider random initial conditions (harder)")
+def assisted(crazy: bool) -> None:
+    """Launch assisted mode — AGC handles descent rate, you steer.
+
+    In the real Apollo P66, the AGC automated the throttle and attitude
+    hold, but the Commander had to manually steer the LM horizontally
+    (using the RHC) and schedule the descent rate (using the ROD switch).
+
+    In assisted mode, the autopilot handles the ROD for you (scheduling
+    descent rate by altitude), so you can focus on what made P66 hard:
+    nulling horizontal velocity with the RHC to land on target.
+
+    Controls:
+        Arrow keys: Pitch/Roll (Rotational Hand Controller) — YOUR JOB
+        Q/E: Yaw
+        Enter: Reset after game over
+    """
+    from apollo_lander.manual import play as run_play
+
+    run_play(mode="assisted", crazy=crazy)
+
+
+@main.command()
+@click.option("--crazy", is_flag=True, default=False, help="Wider random initial conditions (harder)")
+def assisted(crazy: bool) -> None:
+    """Launch assisted mode — AGC handles descent rate, you steer.
+
+    In the real Apollo P66, the AGC automated the throttle and attitude
+    hold, but the Commander had to manually steer the LM horizontally
+    (using the RHC) and schedule the descent rate (using the ROD switch).
+
+    In assisted mode, the autopilot handles the ROD for you (scheduling
+    descent rate by altitude), so you can focus on what made P66 hard:
+    nulling horizontal velocity with the RHC to land on target.
+
+    Controls:
+        Arrow keys: Pitch/Roll (Rotational Hand Controller) — YOUR JOB
+        Q/E: Yaw
+        Enter: Reset after game over
+    """
+    from apollo_lander.manual import play as run_play
+
+    run_play(mode="assisted", crazy=crazy)
 
 
 @main.command()
 @click.option("--episodes", type=int, default=0, help="Headless episodes (0 = launch browser)")
-def autopilot(episodes: int) -> None:
+@click.option("--crazy", is_flag=True, default=False, help="Wider random initial conditions (harder)")
+def autopilot(episodes: int, crazy: bool) -> None:
     """Run the classical AGC autopilot (no RL).
 
     With no options, launches the browser to watch the autopilot fly.
@@ -56,10 +104,11 @@ def autopilot(episodes: int) -> None:
         total_rewards: list[float] = []
         final_velocities: list[tuple[float, float]] = []
 
-        click.echo(f"Running AGC autopilot for {episodes} episodes...")
+        click.echo(f"Running AGC autopilot for {episodes} episodes{' (CRAZY mode)' if crazy else ''}...")
 
+        reset_options = {"crazy": True} if crazy else None
         for ep in range(episodes):
-            obs, info = env.reset()
+            obs, info = env.reset(options=reset_options)
             agent.reset()
             done = False
             ep_reward = 0.0
@@ -94,13 +143,13 @@ def autopilot(episodes: int) -> None:
         click.echo(f"AGC Autopilot — {successes}/{episodes} landings ({100*successes/episodes:.1f}%)")
         click.echo(f"Avg reward:   {np.mean(total_rewards):.1f}")
         click.echo(f"Avg |Vv|:     {np.mean([abs(v) for v, _ in final_velocities]):.2f} m/s")
-        click.echo(f"Avg Vh:       {np.mean([h for _, h in final_velocities]):.2f} m/s")
+        click.echo(f"Avg |Vh|:     {np.mean([abs(h) for _, h in final_velocities]):.2f} m/s")
         env.close()
     else:
         # Launch browser mode
         from apollo_lander.manual import play as run_play
 
-        run_play(mode="autopilot")
+        run_play(mode="autopilot", crazy=crazy)
 
 
 @main.command()

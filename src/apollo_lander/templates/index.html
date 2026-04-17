@@ -218,6 +218,8 @@
 
     // Keyboard state
     const keys = {};
+    // ROD edge-trigger: queue presses, consume once per tick
+    let rodQueue = 0;  // 0=none, 1=up, 2=down
     document.addEventListener('keydown', (e) => {
         keys[e.code] = true;
         // Prevent page scroll on arrow/pgup/pgdn
@@ -225,6 +227,9 @@
              'PageUp','PageDown','Space'].includes(e.code)) {
             e.preventDefault();
         }
+        // ROD is edge-triggered: only fire on initial keydown
+        if (e.code === 'PageUp' && !e.repeat)   rodQueue = 1;
+        if (e.code === 'PageDown' && !e.repeat) rodQueue = 2;
         if (e.code === 'Enter' && state && state.game_over) {
             resetGame();
         }
@@ -246,13 +251,18 @@
         const resp = await fetch('/api/step', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rhc, rod })
+            body: JSON.stringify({ rhc, rod }),
+            signal: AbortSignal.timeout(3000),
         });
+        if (!resp.ok) throw new Error(`step failed: ${resp.status}`);
         return await resp.json();
     }
 
     async function apiAutopilotStep() {
-        const resp = await fetch('/api/autopilot-step', { method: 'POST' });
+        const resp = await fetch('/api/autopilot-step', {
+            method: 'POST',
+            signal: AbortSignal.timeout(3000),
+        });
         return await resp.json();
     }
 
@@ -263,16 +273,20 @@
     function readAction() {
         const rhc = [0, 0, 0];
 
-        if (keys['ArrowUp'])    rhc[0] = -0.5;  // pitch forward
-        if (keys['ArrowDown'])  rhc[0] =  0.5;  // pitch back
-        if (keys['ArrowLeft'])  rhc[1] = -0.5;  // roll left
-        if (keys['ArrowRight']) rhc[1] =  0.5;  // roll right
-        if (keys['KeyQ'])       rhc[2] = -0.5;  // yaw left
-        if (keys['KeyE'])       rhc[2] =  0.5;  // yaw right
+        // Keyboard is binary: key pressed = joystick pushed to hard stop
+        // (full deflection, commanding max rotation rate of 20°/s).
+        // Key released = springs snap stick back to center detent
+        // (RCAH attitude hold engages immediately).
+        if (keys['ArrowUp'])    rhc[0] = -1.0;  // pitch forward (full rate)
+        if (keys['ArrowDown'])  rhc[0] =  1.0;  // pitch back (full rate)
+        if (keys['ArrowLeft'])  rhc[1] = -1.0;  // roll left (full rate)
+        if (keys['ArrowRight']) rhc[1] =  1.0;  // roll right (full rate)
+        if (keys['KeyQ'])       rhc[2] = -1.0;  // yaw left (full rate)
+        if (keys['KeyE'])       rhc[2] =  1.0;  // yaw right (full rate)
 
-        let rod = 0;
-        if (keys['PageUp'])   rod = 1;  // decrease sink rate
-        if (keys['PageDown']) rod = 2;  // increase sink rate
+        // ROD: consume queued edge-trigger (one click per keypress)
+        let rod = rodQueue;
+        rodQueue = 0;
 
         return { rhc, rod };
     }
@@ -306,13 +320,12 @@
         const targetDR = st.target_descent_rate;
         const obs = st.obs;
 
-        // Dynamic scale
-        let scale;
-        if (alt > 10) {
-            scale = Math.min(BASE_SCALE, (H * 0.6) / Math.max(alt, 1));
-        } else {
-            scale = BASE_SCALE * 5;
-        }
+        // LM world position (horizontal distance from pad, meters)
+        const lmWorldX = obs.length > 0 ? obs[0] : 0;
+
+        // Fixed scale: 150 m fills 60% of the canvas height.
+        // No dynamic zoom — the LM simply descends towards the surface.
+        const scale = (H * 0.6) / 150;
 
         // Terrain height function (matches server-side _terrain_height)
         // Returns elevation offset in meters at horizontal distance x from pad
@@ -327,13 +340,19 @@
         // Lunar surface with terrain roughness
         const surfaceY = Math.floor(H * 0.85);
 
+        // Camera follows LM: world-to-screen transform
+        // screenPx = W/2 + (worldX - lmWorldX) * scale
+        function worldToScreenX(worldX) {
+            return W / 2 + (worldX - lmWorldX) * scale;
+        }
+
         // Draw terrain as a filled polygon
         ctx.fillStyle = COL_SURFACE;
         ctx.beginPath();
         ctx.moveTo(0, H);  // bottom-left corner
         for (let px = 0; px <= W; px += 2) {
-            // Convert pixel x to world x (meters from pad center)
-            const worldX = (px - W / 2) / scale;
+            // Convert pixel x to world x (camera-relative)
+            const worldX = lmWorldX + (px - W / 2) / scale;
             const th = terrainHeight(worldX);
             const py = surfaceY - Math.floor(th * scale);
             ctx.lineTo(px, py);
@@ -346,7 +365,7 @@
         ctx.strokeStyle = COL_SURFACE_DETAIL;
         ctx.lineWidth = 1;
         for (let px = 0; px < W; px += 40) {
-            const worldX = (px - W / 2) / scale;
+            const worldX = lmWorldX + (px - W / 2) / scale;
             const th = terrainHeight(worldX);
             const py = surfaceY - Math.floor(th * scale);
             ctx.beginPath();
@@ -355,24 +374,20 @@
             ctx.stroke();
         }
 
-        // Landing pad marker
+        // Landing pad marker (at worldX = 0)
+        const padScreenX = worldToScreenX(0);
         ctx.fillStyle = '#666';
-        ctx.fillRect(W / 2 - 20, surfaceY - 2, 40, 4);
+        ctx.fillRect(padScreenX - 20, surfaceY - 2, 40, 4);
         ctx.fillStyle = '#999';
         ctx.font = '10px Courier New';
         ctx.textAlign = 'center';
-        ctx.fillText('▼ PAD ▼', W / 2, surfaceY + 15);
+        ctx.fillText('▼ PAD ▼', padScreenX, surfaceY + 15);
 
-        // LM position on screen
-        // Altitude is referenced to footpads (alt=0 → feet on ground).
-        // The LM sprite's feet are drawn at lmY + lmSize*1.4 below center,
-        // so we offset lmY upward by that amount so feet sit on the surface.
-        const horizOffset = obs.length > 0 ? obs[0] * scale * 0.1 : 0;
-        let lmX = W / 2 + horizOffset;
+        // LM is always centered horizontally (camera tracks it)
+        let lmX = W / 2;
         const lmSize = 15;
         const legPixels = Math.floor(lmSize * 1.4);
         // Compute terrain height under the LM for rendering
-        const lmWorldX = obs.length > 0 ? obs[0] * 0.1 : 0;
         const terrainUnderLM = terrainHeight(lmWorldX);
         const localSurfaceY = surfaceY - Math.floor(terrainUnderLM * scale);
         let lmY = localSurfaceY - Math.floor(alt * scale) - legPixels;
@@ -610,13 +625,13 @@
         }
 
         // HUD overlay (left side)
-        drawHUD(alt, vv, vh, fuel, targetDR);
+        drawHUD(alt, vv, vh, fuel, targetDR, lmWorldX);
 
         // DSKY panel (right side)
         drawDSKY(alt, vv, vh, targetDR);
     }
 
-    function drawHUD(alt, vv, vh, fuel, targetDR) {
+    function drawHUD(alt, vv, vh, fuel, targetDR, distFromPad) {
         const x = 15;
         const y = 20;
         const lineH = 24;
@@ -624,10 +639,15 @@
         ctx.font = '16px Courier New';
         ctx.textAlign = 'left';
 
+        // Warning: Vh too high for safe landing
+        const vhWarn = Math.abs(vh) > 0.6;
+        const vhCrit = Math.abs(vh) > 2.0;
+
         const lines = [
             { label: `ALT:  ${alt.toFixed(1).padStart(8)} m`,  color: COL_HUD },
             { label: `VVEL: ${vv.toFixed(2).padStart(8)} m/s`, color: Math.abs(vv) > 3 ? COL_HUD_WARN : COL_HUD },
-            { label: `HVEL: ${vh.toFixed(2).padStart(8)} m/s`, color: vh > 1 ? COL_HUD_WARN : COL_HUD },
+            { label: `HVEL: ${vh.toFixed(2).padStart(8)} m/s`, color: vhCrit ? COL_HUD_CRIT : (vhWarn ? COL_HUD_WARN : COL_HUD) },
+            { label: `DIST: ${distFromPad.toFixed(0).padStart(8)} m`,  color: Math.abs(distFromPad) > 100 ? COL_HUD_WARN : COL_HUD },
             { label: `FUEL: ${fuel.toFixed(1).padStart(8)} kg`, color: fuel < 500 ? COL_HUD_CRIT : (fuel < 1500 ? COL_HUD_WARN : COL_HUD) },
             { label: `RATE: ${targetDR.toFixed(2).padStart(8)} m/s`, color: COL_HUD },
         ];
@@ -845,33 +865,59 @@
         running = true;
         if (gameMode === 'autopilot') {
             statusBar.textContent = 'P66 AGC AUTOPILOT — Observing';
+        } else if (gameMode === 'assisted') {
+            statusBar.textContent = 'P66 ASSISTED — Steer with RHC (AGC handles descent rate)';
         } else {
-            statusBar.textContent = 'P66 ACTIVE — Fly the Lunar Module';
+            statusBar.textContent = 'P66 MANUAL — Fly the Lunar Module';
         }
     }
 
+    let ticking = false;  // guard against tick pileup
+
+    let tickErrors = 0;
+
     async function tick() {
         if (!running || !state || state.game_over) return;
+        if (ticking) return;  // previous tick still in flight
+        ticking = true;
 
-        if (gameMode === 'autopilot') {
-            state = await apiAutopilotStep();
-        } else {
-            const action = readAction();
-            state = await apiStep(action.rhc, action.rod);
-        }
-        render(state);
+        try {
+            if (gameMode === 'autopilot') {
+                state = await apiAutopilotStep();
+            } else {
+                // In both manual and assisted modes, send player's RHC input.
+                // For assisted mode, the server overrides ROD with the autopilot's
+                // descent rate schedule — the player only needs to steer.
+                const action = readAction();
+                state = await apiStep(action.rhc, action.rod);
+            }
+            tickErrors = 0;  // reset error counter on success
+            render(state);
 
-        // Update status bar
-        const modeLabel = gameMode === 'autopilot' ? 'AGC' : 'P66';
-        statusBar.textContent =
-            `${modeLabel} | ALT ${state.altitude.toFixed(0)}m | ` +
-            `Vv ${state.vertical_velocity.toFixed(1)}m/s | ` +
-            `Fuel ${state.fuel_remaining.toFixed(0)}kg | ` +
-            `Reward ${state.total_reward.toFixed(0)}`;
+            // Update status bar
+            const modeLabels = { autopilot: 'AGC AUTO', assisted: 'ASSISTED', manual: 'P66' };
+            const modeLabel = modeLabels[gameMode] || 'P66';
+            statusBar.textContent =
+                `${modeLabel} | ALT ${state.altitude.toFixed(0)}m | ` +
+                `Vv ${state.vertical_velocity.toFixed(1)}m/s | ` +
+                `Fuel ${state.fuel_remaining.toFixed(0)}kg | ` +
+                `Reward ${state.total_reward.toFixed(0)}`;
 
-        if (state.game_over) {
-            running = false;
-            showGameOver();
+            if (state.game_over) {
+                running = false;
+                showGameOver();
+            }
+        } catch (err) {
+            tickErrors++;
+            console.error('tick error:', err);
+            if (tickErrors >= 5) {
+                // Persistent failure — reset the game to recover
+                console.warn('Too many tick errors, resetting game');
+                tickErrors = 0;
+                await resetGame();
+            }
+        } finally {
+            ticking = false;
         }
     }
 
@@ -901,10 +947,13 @@
         if (reason === 'crash') {
             const vvAbs = Math.abs(state.vertical_velocity);
             const vhAbs = Math.abs(state.horizontal_velocity);
+            const slope = state.slope_deg || 0;
             const vvOk = vvAbs <= 1.2;
             const vhOk = vhAbs <= 0.6;
+            const slopeOk = slope <= 12;
             if (!vvOk) detail += `Vertical vel ${vvAbs.toFixed(2)} m/s exceeded 1.2 m/s limit<br>`;
             if (!vhOk) detail += `Horizontal vel ${vhAbs.toFixed(2)} m/s exceeded 0.6 m/s limit<br>`;
+            if (!slopeOk) detail += `Terrain slope ${slope.toFixed(1)}° exceeded 12° limit<br>`;
         } else if (reason === 'fuel') {
             detail = 'Descent engine propellant depleted before touchdown.<br>';
         } else if (reason === 'timeout') {
@@ -916,6 +965,7 @@
             `Final altitude: ${state.altitude.toFixed(1)} m<br>` +
             `Vertical vel: ${state.vertical_velocity.toFixed(2)} m/s<br>` +
             `Horizontal vel: ${state.horizontal_velocity.toFixed(2)} m/s<br>` +
+            `Terrain slope: ${(state.slope_deg || 0).toFixed(1)}°<br>` +
             `Fuel remaining: ${state.fuel_remaining.toFixed(1)} kg<br>` +
             `Total reward: ${state.total_reward.toFixed(1)}`;
 
